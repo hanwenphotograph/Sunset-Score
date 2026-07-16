@@ -10,6 +10,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 
 - Runs locally after the initial model download, without an API key or cloud service
 - Automatically uses a compatible GPU, with CPU override and automatic fallback
+- Runs multiple GPU inferences concurrently within a detected memory budget
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
@@ -102,6 +103,14 @@ Force CPU inference even when a compatible GPU is available:
 sunsetscore /path/to/photos --cpu-infer
 ```
 
+Cap GPU concurrency, the scheduling memory budget, or both:
+
+```console
+sunsetscore /path/to/photos --gpu-workers 2
+sunsetscore /path/to/photos --gpu-memory-limit 6
+sunsetscore /path/to/photos --gpu-workers 3 --gpu-memory-limit 10
+```
+
 Human-readable output:
 
 ```text
@@ -142,7 +151,7 @@ At the end of the run, the CLI prints every directory conclusion and writes a re
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model, inference backend and device metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend, device, maximum concurrency and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
 
 ## Local Configuration
 
@@ -171,6 +180,8 @@ Backend priority and availability are:
 4. CPU on every supported platform
 
 Each GPU runtime is verified by listing its compute devices before it is selected. Installation or device-verification failure advances to the next candidate backend. If real GPU inference later fails, SunsetScore logs the reason and switches directly to CPU. `--cpu-infer` skips GPU detection and forces CPU execution. Models are shared between backends, while each managed runtime is cached separately.
+
+For batches containing multiple samples, SunsetScore runs GPU inference concurrently. Automatic scheduling reserves 1 GiB of currently free device memory, budgets 3 GiB per worker, and uses at most four workers. `--gpu-workers` sets an upper bound on workers. `--gpu-memory-limit` sets a scheduling budget in GiB and has a minimum value of `3`; it is an approximate concurrency budget, not a driver-enforced hard VRAM cap. The detected free-memory budget and both manual limits are combined conservatively. GPU limit options cannot be used with `--cpu-infer`.
 
 Downloads provide progress logs, temporary files, HTTP resume support, SHA-256 verification, atomic installation, and one automatic retry. Subsequent runs can operate offline, although cached model files are still checked for integrity.
 
@@ -203,12 +214,13 @@ These bands describe the requested rubric, but a small generative vision-languag
 
 ## Performance
 
-On the development machine (`Ryzen 7 9700X` and `RTX 5070 Ti 16 GB`), the same image took 11.92 seconds with forced CPU inference and 1.82-1.96 seconds with warmed-up CUDA inference, a speedup of roughly 6x. The first CUDA inference after installation took 38.69 seconds because the driver compiled and cached kernels; later processes reused that cache. Timing depends on the selected backend and is reported in the per-image logs.
+On the development machine (`Ryzen 7 9700X` and `RTX 5070 Ti 16 GB`), eight real samples took 16.1 seconds end to end with one CUDA worker and 7.9 seconds with the automatically selected four workers, a 2.04x throughput improvement. A 6 GiB limit selected two workers and took 10.4 seconds. Raising concurrency to six or eight workers made throughput substantially worse, which is why automatic scheduling stops at four. The first CUDA inference after installation took 38.69 seconds because the driver compiled and cached kernels; later single-image processes took 1.82-1.96 seconds.
 
 An approximate runtime is:
 
 ```text
-runtime ≈ ceil(number of images / sampling interval) × time per inference
+samples ≈ ceil(number of images / sampling interval)
+runtime ≈ ceil(samples / workers) × concurrent-batch time
 ```
 
 For example, a directory with about 1,800 images and the default interval of `10` produces about 180 inferences and took roughly 36-39 minutes on the development machine with CPU inference. The first run also downloads about 1.55 GB of model data plus the selected runtime.
@@ -227,10 +239,16 @@ print(result.max_score)
 batch = score_directories_independently("D:/Photo-Sessions", interval=10)
 print(batch.report_path)
 print(batch.inference_backend, batch.inference_device)
+print(batch.inference_workers, batch.gpu_memory_limit_gib)
 for directory in batch.directories:
     print(directory.directory, directory.average_score, directory.max_score)
 
 cpu_result = score_directory("D:/Photos", cpu_infer=True)
+limited = score_directory(
+    "D:/Photos",
+    gpu_workers=2,
+    gpu_memory_limit=6,
+)
 ```
 
 `ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.

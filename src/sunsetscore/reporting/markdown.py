@@ -33,6 +33,8 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         f"- 评分模型：`{_escape_code(result.model_version)}`",
         f"- 推理后端：`{_escape_code(result.inference_backend.upper())}`",
         f"- 推理设备：`{_escape_code(result.inference_device)}`",
+        f"- 最大评分并发：`{result.inference_workers}`",
+        f"- GPU 显存限制：`{_memory_limit(result.gpu_memory_limit_gib)}`",
         f"- 成功目录：`{result.successful_directory_count}`",
         f"- 失败目录：`{result.failed_directory_count}`",
         "",
@@ -40,9 +42,9 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         "",
         (
             "| 子目录 | 图片数 | 采样数 | 成功样本 | 失败样本 | "
-            "采样间隔 | 平均分 | 最高分 | 状态 |"
+            "采样间隔 | 并发数 | 平均分 | 最高分 | 状态 |"
         ),
-        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     lines.extend(_table_row(item) for item in result.directories)
 
@@ -77,6 +79,7 @@ def _table_row(item: DirectoryScoreResult) -> str:
         str(item.successful_count),
         str(item.failed_count),
         interval,
+        str(item.inference_workers),
         average,
         maximum,
         status,
@@ -102,3 +105,7 @@ def _escape_cell(value: str) -> str:
 
 def _escape_code(value: str) -> str:
     return value.replace("`", "\\`")
+
+
+def _memory_limit(value: float | None) -> str:
+    return f"{value:g} GiB" if value is not None else "自动"

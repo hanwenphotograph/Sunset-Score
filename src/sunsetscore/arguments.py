@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 import sys
 
@@ -32,6 +33,16 @@ def positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("必须是整数") from exc
     if number < 1:
         raise argparse.ArgumentTypeError("必须大于等于 1")
+    return number
+
+
+def gpu_memory_gib(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("必须是数字") from exc
+    if not math.isfinite(number) or number < 3:
+        raise argparse.ArgumentTypeError("必须大于等于 3 GiB")
     return number
 
 
@@ -71,6 +82,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--cpu-infer",
         action="store_true",
         help="强制使用 CPU 推理，跳过 GPU 探测与加速。",
+    )
+    parser.add_argument(
+        "--gpu-workers",
+        type=positive_int,
+        help="限制同时运行的 GPU 推理进程数，默认自动选择。",
+    )
+    parser.add_argument(
+        "--gpu-memory-limit",
+        type=gpu_memory_gib,
+        metavar="GIB",
+        help="限制 GPU 并发调度的显存预算，单位为 GiB。",
     )
     parser.add_argument(
         "--json",

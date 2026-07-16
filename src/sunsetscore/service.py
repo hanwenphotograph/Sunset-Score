@@ -1,24 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from time import perf_counter
 from typing import Protocol
 
 from .config import resolve_interval
-from .discovery import discover_image_directories, discover_images, sample_images
-from .errors import PhotoProcessingError, ScoringError, SunsetScoreError
+from .discovery import discover_images, sample_images
+from .errors import ScoringError
+from .inference.batch import score_image_batch
 from .inference.runner import LocalVisionScorer
+from .inference.scheduling import log_inference_plan, resolve_inference_plan
 from .log import logger
-from .reporting import write_markdown_report
-from .results import (
-    DirectoryScoreResult,
-    IndependentScoreResult,
-    PhotoScore,
-    ScoreResult,
-)
+from .results import DirectoryScoreResult, PhotoScore, ScoreResult
 
 
 class ImageScorer(Protocol):
@@ -31,6 +24,12 @@ class ImageScorer(Protocol):
     @property
     def inference_device(self) -> str: ...
 
+    @property
+    def parallel_scoring_supported(self) -> bool: ...
+
+    @property
+    def free_gpu_memory_mib(self) -> int | None: ...
+
     def score(self, image: Path) -> PhotoScore: ...
 
 
@@ -40,6 +39,8 @@ def run_directory_score(
     recursive: bool,
     interval: int | None,
     cpu_infer: bool = False,
+    gpu_workers: int | None = None,
+    gpu_memory_limit: float | None = None,
     scorer: ImageScorer | None = None,
 ) -> ScoreResult:
     detail = run_directory_analysis(
@@ -47,6 +48,8 @@ def run_directory_score(
         recursive=recursive,
         interval=interval,
         cpu_infer=cpu_infer,
+        gpu_workers=gpu_workers,
+        gpu_memory_limit=gpu_memory_limit,
         scorer=scorer,
     )
     assert detail.average_score is not None
@@ -63,6 +66,8 @@ def run_directory_analysis(
     recursive: bool,
     interval: int | None,
     cpu_infer: bool = False,
+    gpu_workers: int | None = None,
+    gpu_memory_limit: float | None = None,
     scorer: ImageScorer | None = None,
     directory_label: str | None = None,
     log_model: bool = True,
@@ -84,30 +89,16 @@ def run_directory_analysis(
         logger.info("评分模型：%s", active_scorer.model_version)
         backend, device = _inference_metadata(active_scorer)
         logger.info("推理后端：%s，设备：%s", backend.upper(), device)
-    scores: list[int] = []
-    failed = 0
-
-    for index, image in enumerate(samples, start=1):
-        relative = image.relative_to(root)
-        started = perf_counter()
-        logger.info("[%d/%d] 正在评分：%s", index, len(samples), relative)
-        try:
-            photo_score = active_scorer.score(image)
-        except PhotoProcessingError as exc:
-            failed += 1
-            logger.warning("[%d/%d] 跳过 %s：%s", index, len(samples), relative, exc)
-            continue
-
-        elapsed = perf_counter() - started
-        scores.append(photo_score.score)
-        logger.info(
-            "[%d/%d] 得分 %d，耗时 %.2f 秒，理由：%s",
-            index,
-            len(samples),
-            photo_score.score,
-            elapsed,
-            photo_score.reason,
-        )
+    plan = resolve_inference_plan(
+        active_scorer,
+        len(samples),
+        gpu_workers=gpu_workers,
+        gpu_memory_limit=gpu_memory_limit,
+    )
+    log_inference_plan(plan)
+    batch = score_image_batch(samples, root, active_scorer, workers=plan.workers)
+    scores = list(batch.scores)
+    failed = batch.failed_count
 
     if not scores:
         raise ScoringError("所有采样照片均评分失败，无法生成运行结果")
@@ -119,72 +110,12 @@ def run_directory_analysis(
         successful_count=len(scores),
         failed_count=failed,
         interval=resolved_interval,
+        inference_workers=plan.workers,
         average_score=_rounded_average(scores),
         max_score=max(scores),
     )
     logger.info("评分完成：成功 %d 张，失败 %d 张", len(scores), failed)
     return result
-
-
-def run_independent_directory_scores(
-    directory: Path,
-    *,
-    interval: int | None,
-    cpu_infer: bool = False,
-    scorer: ImageScorer | None = None,
-    generated_at: datetime | None = None,
-) -> IndependentScoreResult:
-    directories = discover_image_directories(directory)
-    root = directory.expanduser().resolve()
-    if not directories:
-        raise ScoringError("递归范围内没有直接包含 JPG 或 PNG 的合法子目录")
-
-    active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
-    logger.info("发现 %d 个可独立分析的子目录", len(directories))
-    logger.info("评分模型：%s", active_scorer.model_version)
-    backend, device = _inference_metadata(active_scorer)
-    logger.info("推理后端：%s，设备：%s", backend.upper(), device)
-    results: list[DirectoryScoreResult] = []
-
-    for index, child in enumerate(directories, start=1):
-        label = child.relative_to(root).as_posix()
-        logger.info("[%d/%d] 开始独立分析：%s", index, len(directories), label)
-        try:
-            result = run_directory_analysis(
-                child,
-                recursive=False,
-                interval=interval,
-                cpu_infer=cpu_infer,
-                scorer=active_scorer,
-                directory_label=label,
-                log_model=False,
-            )
-        except SunsetScoreError as exc:
-            logger.error(
-                "[%d/%d] 子目录分析失败 %s：%s", index, len(directories), label, exc
-            )
-            result = DirectoryScoreResult(directory=label, error=str(exc))
-        results.append(result)
-
-    timestamp = generated_at or datetime.now().astimezone()
-    backend, device = _inference_metadata(active_scorer)
-    draft = IndependentScoreResult(
-        root_directory=str(root),
-        generated_at=timestamp.isoformat(timespec="seconds"),
-        model_version=active_scorer.model_version,
-        report_path="",
-        directories=tuple(results),
-        inference_backend=backend,
-        inference_device=device,
-    )
-    report_path = write_markdown_report(
-        draft,
-        root,
-        filename_timestamp=timestamp.strftime("%Y%m%d-%H%M%S"),
-    )
-    final = replace(draft, report_path=str(report_path))
-    logger.info("独立目录分析报告：%s", report_path)
-    return final
 
 
 def _rounded_average(scores: list[int]) -> float:

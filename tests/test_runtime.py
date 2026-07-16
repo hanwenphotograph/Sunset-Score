@@ -183,4 +183,5 @@ def test_runtime_selection_continues_after_gpu_failure(tmp_path, monkeypatch) ->
 
     assert selected.spec.backend == "cpu"
     assert executable == cpu_executable
-    assert device == "Test CPU"
+    assert device.label == "Test CPU"
+    assert device.free_memory_mib is None

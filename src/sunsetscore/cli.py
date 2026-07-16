@@ -24,6 +24,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.directory is None:
         parser.print_help()
         return 0
+    if args.cpu_infer and (
+        args.gpu_workers is not None or args.gpu_memory_limit is not None
+    ):
+        parser.error("--cpu-infer 不能与 GPU 限制参数一起使用")
 
     configure_logging()
     try:
@@ -32,6 +36,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.directory,
                 interval=args.interval,
                 cpu_infer=args.cpu_infer,
+                gpu_workers=args.gpu_workers,
+                gpu_memory_limit=args.gpu_memory_limit,
             )
         else:
             result = score_directory(
@@ -39,6 +45,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 recursive=args.recursive,
                 interval=args.interval,
                 cpu_infer=args.cpu_infer,
+                gpu_workers=args.gpu_workers,
+                gpu_memory_limit=args.gpu_memory_limit,
             )
     except SunsetScoreError as exc:
         logger.error("%s", exc)

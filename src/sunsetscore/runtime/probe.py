@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+import re
 import subprocess
 
 from ..errors import RuntimeInstallError
 from .devices import RuntimeCandidate
 
 
-def probe_gpu_runtime(executable: Path, candidate: RuntimeCandidate) -> str:
+_MEMORY_PATTERN = re.compile(r"\((\d+) MiB,\s*(\d+) MiB free\)")
+
+
+@dataclass(frozen=True, slots=True)
+class GpuDeviceInfo:
+    label: str
+    total_memory_mib: int | None = None
+    free_memory_mib: int | None = None
+
+
+def probe_gpu_runtime(
+    executable: Path,
+    candidate: RuntimeCandidate,
+) -> GpuDeviceInfo:
     try:
         result = subprocess.run(
             [str(executable), "--list-devices"],
@@ -35,7 +50,14 @@ def probe_gpu_runtime(executable: Path, candidate: RuntimeCandidate) -> str:
     )
     if not device_line:
         raise RuntimeInstallError("GPU 运行时未列出匹配的计算设备")
-    return device_line
+    memory = _MEMORY_PATTERN.search(device_line)
+    if memory is None:
+        return GpuDeviceInfo(device_line)
+    return GpuDeviceInfo(
+        device_line,
+        total_memory_mib=int(memory.group(1)),
+        free_memory_mib=int(memory.group(2)),
+    )
 
 
 def _last_nonempty_line(value: str) -> str:

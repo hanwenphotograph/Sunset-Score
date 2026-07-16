@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .independent import run_independent_directory_scores
 from .results import IndependentScoreResult, ScoreResult
-from .service import run_directory_score, run_independent_directory_scores
+from .service import run_directory_score
 
 
 def score_directory(
@@ -12,6 +13,8 @@ def score_directory(
     recursive: bool = False,
     interval: int | None = None,
     cpu_infer: bool = False,
+    gpu_workers: int | None = None,
+    gpu_memory_limit: float | None = None,
 ) -> ScoreResult:
     """Score a directory, optionally forcing CPU inference."""
 
@@ -20,6 +23,8 @@ def score_directory(
         recursive=recursive,
         interval=interval,
         cpu_infer=cpu_infer,
+        gpu_workers=gpu_workers,
+        gpu_memory_limit=gpu_memory_limit,
     )
 
 
@@ -28,6 +33,8 @@ def score_directories_independently(
     *,
     interval: int | None = None,
     cpu_infer: bool = False,
+    gpu_workers: int | None = None,
+    gpu_memory_limit: float | None = None,
 ) -> IndependentScoreResult:
     """Score descendant directories and write a Markdown report."""
 
@@ -35,4 +42,6 @@ def score_directories_independently(
         Path(directory),
         interval=interval,
         cpu_infer=cpu_infer,
+        gpu_workers=gpu_workers,
+        gpu_memory_limit=gpu_memory_limit,
     )

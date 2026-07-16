@@ -9,7 +9,7 @@ import pytest
 from sunsetscore.errors import InferenceError, ScoringError
 from sunsetscore.log import configure_logging
 from sunsetscore.results import PhotoScore
-from sunsetscore.service import run_independent_directory_scores
+from sunsetscore.independent import run_independent_directory_scores
 
 
 class FakeScorer:
@@ -80,7 +80,8 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert "# SunsetScore 独立目录分析报告" in report
     assert "- 推理后端：`CUDA`" in report
     assert "- 推理设备：`CUDA0: Fake GPU`" in report
-    assert "| a2 | 3 | 2 | 2 | 0 | 2 | 50.00 | 80 | 成功 |" in report
+    assert "- 最大评分并发：`1`" in report
+    assert "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 50.00 | 80 | 成功 |" in report
 
 
 def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -> None:
