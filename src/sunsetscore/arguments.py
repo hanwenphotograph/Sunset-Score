@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="采样间隔，覆盖本地配置中的值，默认值为 10。",
     )
     parser.add_argument(
+        "--cpu-infer",
+        action="store_true",
+        help="强制使用 CPU 推理，跳过 GPU 探测与加速。",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="仅在标准输出中打印 JSON 结论。",

@@ -9,6 +9,7 @@ import pytest
 from sunsetscore.errors import RuntimeInstallError
 from sunsetscore.runtime import archive as runtime_archive
 from sunsetscore.runtime import download, install
+from sunsetscore.runtime.devices import RuntimeCandidate
 from sunsetscore.runtime.paths import (
     HOME_ENVIRONMENT_VARIABLE,
     RuntimePaths,
@@ -131,3 +132,55 @@ def test_runtime_archive_is_installed_once(tmp_path, monkeypatch) -> None:
     assert first == second
     assert first.read_bytes() == b"executable"
     assert calls == 1
+
+
+def test_runtime_installs_additional_archives(tmp_path, monkeypatch) -> None:
+    main = tmp_path / "main.zip"
+    dependency = tmp_path / "dependency.zip"
+    with zipfile.ZipFile(main, "w") as output:
+        output.writestr("bin/llama-mtmd-cli.exe", b"executable")
+    with zipfile.ZipFile(dependency, "w") as output:
+        output.writestr("bin/cudart.dll", b"dependency")
+    main_spec = _artifact(main.read_bytes(), main.name)
+    dependency_spec = _artifact(dependency.read_bytes(), dependency.name)
+    spec = RuntimeSpec(
+        "test-cuda",
+        main_spec,
+        "llama-mtmd-cli.exe",
+        "cuda",
+        (dependency_spec,),
+    )
+    paths = RuntimePaths(tmp_path / "home")
+    paths.create()
+    archives = {main.name: main, dependency.name: dependency}
+    monkeypatch.setattr(
+        install,
+        "ensure_download",
+        lambda requested, destination: archives[requested.filename],
+    )
+
+    executable = install._ensure_runtime(paths, spec)
+
+    assert executable.read_bytes() == b"executable"
+    assert (executable.parent / "cudart.dll").read_bytes() == b"dependency"
+
+
+def test_runtime_selection_continues_after_gpu_failure(tmp_path, monkeypatch) -> None:
+    cuda = RuntimeCandidate(detect_runtime_spec("Windows", "AMD64", "cuda"), "Test GPU")
+    cpu = RuntimeCandidate(detect_runtime_spec("Windows", "AMD64"), "Test CPU")
+    cpu_executable = tmp_path / "cpu.exe"
+
+    def fake_install(paths, spec):
+        if spec.backend == "cuda":
+            raise RuntimeInstallError("模拟 GPU 失败")
+        return cpu_executable
+
+    monkeypatch.setattr(install, "_ensure_runtime", fake_install)
+
+    selected, executable, device = install._select_runtime(
+        RuntimePaths(tmp_path), [cuda, cpu]
+    )
+
+    assert selected.spec.backend == "cpu"
+    assert executable == cpu_executable
+    assert device == "Test CPU"

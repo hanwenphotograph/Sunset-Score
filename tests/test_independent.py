@@ -14,6 +14,8 @@ from sunsetscore.service import run_independent_directory_scores
 
 class FakeScorer:
     model_version = "fake-v1"
+    inference_backend = "cuda"
+    inference_device = "CUDA0: Fake GPU"
 
     def __init__(
         self, scores: dict[str, int], failures: set[str] | None = None
@@ -76,6 +78,8 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert Path(result.report_path).name == "sunsetscore-analysis-20260716-123456.md"
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert "# SunsetScore 独立目录分析报告" in report
+    assert "- 推理后端：`CUDA`" in report
+    assert "- 推理设备：`CUDA0: Fake GPU`" in report
     assert "| a2 | 3 | 2 | 2 | 0 | 2 | 50.00 | 80 | 成功 |" in report
 
 

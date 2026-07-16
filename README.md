@@ -9,6 +9,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 ## Features
 
 - Runs locally after the initial model download, without an API key or cloud service
+- Automatically uses a compatible GPU, with CPU override and automatic fallback
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
@@ -25,10 +26,10 @@ The score is a model-generated confidence index, not a statistically calibrated 
 - Windows 10/11 x64
 - macOS on Intel or Apple Silicon
 - A mainstream Linux x64 distribution
-- Approximately 1.6 GB of disk space for the model and runtime
+- Approximately 1.6 GB for CPU-only use, or roughly 3.2 GB with managed CUDA files
 - JPG, JPEG, or PNG input images
 
-The first release does not support 32-bit systems, Linux ARM, RAW, HEIC, AVIF, or configurable GPU-specific acceleration.
+SunsetScore can use CUDA on supported NVIDIA GPUs under Windows, Metal on macOS, and Vulkan on supported Windows or Linux GPUs. It does not support 32-bit systems, Linux ARM, RAW, HEIC, or AVIF.
 
 ## Installation
 
@@ -95,6 +96,12 @@ Override the sampling interval and emit a machine-readable result:
 sunsetscore /path/to/photos --interval 5 --json
 ```
 
+Force CPU inference even when a compatible GPU is available:
+
+```console
+sunsetscore /path/to/photos --cpu-infer
+```
+
 Human-readable output:
 
 ```text
@@ -135,7 +142,7 @@ At the end of the run, the CLI prints every directory conclusion and writes a re
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend and device metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
 
 ## Local Configuration
 
@@ -150,11 +157,20 @@ Configuration is validated strictly. Unknown keys, invalid types, and intervals 
 
 ## Model and Managed Runtime
 
-The first scoring run automatically downloads and verifies these pinned components:
+The first scoring run automatically detects acceleration support, then downloads and verifies these pinned components:
 
-- `llama.cpp b10040` portable runtime for the current platform: approximately 11-18 MB
+- `llama.cpp b10040` runtime for the selected backend: approximately 11-640 MB of downloads
 - `Qwen3-VL-2B-Instruct Q4_K_M` language model: approximately 1.11 GB
 - `Qwen3-VL-2B-Instruct Q8_0` vision projector: approximately 445 MB
+
+Backend priority and availability are:
+
+1. CUDA 12.4 on Windows x64 when a compatible NVIDIA driver is detected
+2. Metal on macOS
+3. Vulkan on Windows or Linux when a Vulkan loader is available
+4. CPU on every supported platform
+
+Each GPU runtime is verified by listing its compute devices before it is selected. Installation or device-verification failure advances to the next candidate backend. If real GPU inference later fails, SunsetScore logs the reason and switches directly to CPU. `--cpu-infer` skips GPU detection and forces CPU execution. Models are shared between backends, while each managed runtime is cached separately.
 
 Downloads provide progress logs, temporary files, HTTP resume support, SHA-256 verification, atomic installation, and one automatic retry. Subsequent runs can operate offline, although cached model files are still checked for integrity.
 
@@ -187,7 +203,7 @@ These bands describe the requested rubric, but a small generative vision-languag
 
 ## Performance
 
-On the development machine, local CPU inference took approximately 12-13 seconds per sampled image. Actual performance depends on the CPU, memory bandwidth, image content, and operating system.
+On the development machine (`Ryzen 7 9700X` and `RTX 5070 Ti 16 GB`), the same image took 11.92 seconds with forced CPU inference and 1.82-1.96 seconds with warmed-up CUDA inference, a speedup of roughly 6x. The first CUDA inference after installation took 38.69 seconds because the driver compiled and cached kernels; later processes reused that cache. Timing depends on the selected backend and is reported in the per-image logs.
 
 An approximate runtime is:
 
@@ -195,7 +211,7 @@ An approximate runtime is:
 runtime ≈ ceil(number of images / sampling interval) × time per inference
 ```
 
-For example, a directory with about 1,800 images and the default interval of `10` produces about 180 inferences and took roughly 36-39 minutes on the development machine. The first run also needs time to download about 1.55 GB of model data.
+For example, a directory with about 1,800 images and the default interval of `10` produces about 180 inferences and took roughly 36-39 minutes on the development machine with CPU inference. The first run also downloads about 1.55 GB of model data plus the selected runtime.
 
 ## Python API
 
@@ -210,8 +226,11 @@ print(result.max_score)
 
 batch = score_directories_independently("D:/Photo-Sessions", interval=10)
 print(batch.report_path)
+print(batch.inference_backend, batch.inference_device)
 for directory in batch.directories:
     print(directory.directory, directory.average_score, directory.max_score)
+
+cpu_result = score_directory("D:/Photos", cpu_infer=True)
 ```
 
 `ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.

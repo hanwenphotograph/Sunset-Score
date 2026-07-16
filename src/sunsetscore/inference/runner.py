@@ -6,6 +6,7 @@ import subprocess
 
 from ..errors import InferenceError
 from ..imaging import prepared_image
+from ..log import logger
 from ..results import PhotoScore
 from ..runtime import RuntimeEnvironment, ensure_runtime_environment
 from .parser import parse_model_response
@@ -16,12 +17,28 @@ INFERENCE_TIMEOUT_SECONDS = 600
 
 
 class LocalVisionScorer:
-    def __init__(self, environment: RuntimeEnvironment | None = None) -> None:
-        self._environment = environment or ensure_runtime_environment()
+    def __init__(
+        self,
+        environment: RuntimeEnvironment | None = None,
+        *,
+        cpu_infer: bool = False,
+    ) -> None:
+        self._environment = environment or ensure_runtime_environment(
+            force_cpu=cpu_infer
+        )
+        self._fallback_attempted = False
 
     @property
     def model_version(self) -> str:
         return self._environment.version
+
+    @property
+    def inference_backend(self) -> str:
+        return self._environment.backend
+
+    @property
+    def inference_device(self) -> str:
+        return self._environment.device
 
     def score(self, image: Path) -> PhotoScore:
         with prepared_image(image) as normalized:
@@ -33,6 +50,36 @@ class LocalVisionScorer:
                 return parse_model_response(second_output)
 
     def _invoke(self, image: Path, prompt: str) -> str:
+        command = self._build_command(image, prompt)
+        environment = os.environ.copy()
+        environment["NO_COLOR"] = "1"
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=environment,
+                timeout=INFERENCE_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            if self._fallback_to_cpu(str(exc)):
+                return self._invoke(image, prompt)
+            raise InferenceError(f"无法执行本地模型: {exc}") from exc
+
+        if result.returncode != 0:
+            detail = _last_nonempty_line(result.stderr) or _last_nonempty_line(
+                result.stdout
+            )
+            if self._fallback_to_cpu(detail or f"退出码 {result.returncode}"):
+                return self._invoke(image, prompt)
+            suffix = f"：{detail}" if detail else ""
+            raise InferenceError(f"本地模型退出码为 {result.returncode}{suffix}")
+        return result.stdout
+
+    def _build_command(self, image: Path, prompt: str) -> list[str]:
         command = [
             str(self._environment.executable),
             "-m",
@@ -66,29 +113,28 @@ class LocalVisionScorer:
             "off",
             "--no-log-timestamps",
         ]
-        environment = os.environ.copy()
-        environment["NO_COLOR"] = "1"
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=environment,
-                timeout=INFERENCE_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise InferenceError(f"无法执行本地模型: {exc}") from exc
+        if self._environment.backend == "cpu":
+            command.extend(["--device", "none", "--gpu-layers", "0"])
+        else:
+            command.extend(["--gpu-layers", "auto", "--fit", "on"])
+        return command
 
-        if result.returncode != 0:
-            detail = _last_nonempty_line(result.stderr) or _last_nonempty_line(
-                result.stdout
-            )
-            suffix = f"：{detail}" if detail else ""
-            raise InferenceError(f"本地模型退出码为 {result.returncode}{suffix}")
-        return result.stdout
+    def _fallback_to_cpu(self, reason: str) -> bool:
+        if self._environment.backend == "cpu" or self._fallback_attempted:
+            return False
+        self._fallback_attempted = True
+        logger.warning(
+            "%s 推理失败，将自动回退 CPU：%s",
+            self._environment.backend.upper(),
+            reason,
+        )
+        self._environment = ensure_runtime_environment(force_cpu=True)
+        logger.info(
+            "已切换推理后端：%s，设备：%s",
+            self._environment.backend.upper(),
+            self._environment.device,
+        )
+        return True
 
 
 def _last_nonempty_line(value: str) -> str:

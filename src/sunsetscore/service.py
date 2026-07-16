@@ -25,6 +25,12 @@ class ImageScorer(Protocol):
     @property
     def model_version(self) -> str: ...
 
+    @property
+    def inference_backend(self) -> str: ...
+
+    @property
+    def inference_device(self) -> str: ...
+
     def score(self, image: Path) -> PhotoScore: ...
 
 
@@ -33,12 +39,14 @@ def run_directory_score(
     *,
     recursive: bool,
     interval: int | None,
+    cpu_infer: bool = False,
     scorer: ImageScorer | None = None,
 ) -> ScoreResult:
     detail = run_directory_analysis(
         directory,
         recursive=recursive,
         interval=interval,
+        cpu_infer=cpu_infer,
         scorer=scorer,
     )
     assert detail.average_score is not None
@@ -54,6 +62,7 @@ def run_directory_analysis(
     *,
     recursive: bool,
     interval: int | None,
+    cpu_infer: bool = False,
     scorer: ImageScorer | None = None,
     directory_label: str | None = None,
     log_model: bool = True,
@@ -70,9 +79,11 @@ def run_directory_analysis(
         "采样间隔：%d，递归扫描：%s", resolved_interval, "是" if recursive else "否"
     )
 
-    active_scorer = scorer or LocalVisionScorer()
+    active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
     if log_model:
         logger.info("评分模型：%s", active_scorer.model_version)
+        backend, device = _inference_metadata(active_scorer)
+        logger.info("推理后端：%s，设备：%s", backend.upper(), device)
     scores: list[int] = []
     failed = 0
 
@@ -119,6 +130,7 @@ def run_independent_directory_scores(
     directory: Path,
     *,
     interval: int | None,
+    cpu_infer: bool = False,
     scorer: ImageScorer | None = None,
     generated_at: datetime | None = None,
 ) -> IndependentScoreResult:
@@ -127,9 +139,11 @@ def run_independent_directory_scores(
     if not directories:
         raise ScoringError("递归范围内没有直接包含 JPG 或 PNG 的合法子目录")
 
-    active_scorer = scorer or LocalVisionScorer()
+    active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
     logger.info("发现 %d 个可独立分析的子目录", len(directories))
     logger.info("评分模型：%s", active_scorer.model_version)
+    backend, device = _inference_metadata(active_scorer)
+    logger.info("推理后端：%s，设备：%s", backend.upper(), device)
     results: list[DirectoryScoreResult] = []
 
     for index, child in enumerate(directories, start=1):
@@ -140,6 +154,7 @@ def run_independent_directory_scores(
                 child,
                 recursive=False,
                 interval=interval,
+                cpu_infer=cpu_infer,
                 scorer=active_scorer,
                 directory_label=label,
                 log_model=False,
@@ -152,12 +167,15 @@ def run_independent_directory_scores(
         results.append(result)
 
     timestamp = generated_at or datetime.now().astimezone()
+    backend, device = _inference_metadata(active_scorer)
     draft = IndependentScoreResult(
         root_directory=str(root),
         generated_at=timestamp.isoformat(timespec="seconds"),
         model_version=active_scorer.model_version,
         report_path="",
         directories=tuple(results),
+        inference_backend=backend,
+        inference_device=device,
     )
     report_path = write_markdown_report(
         draft,
@@ -172,3 +190,9 @@ def run_independent_directory_scores(
 def _rounded_average(scores: list[int]) -> float:
     value = Decimal(sum(scores)) / Decimal(len(scores))
     return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _inference_metadata(scorer: ImageScorer) -> tuple[str, str]:
+    backend = getattr(scorer, "inference_backend", "unknown")
+    device = getattr(scorer, "inference_device", "unknown")
+    return str(backend), str(device)

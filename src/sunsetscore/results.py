@@ -46,6 +46,8 @@ class IndependentScoreResult:
     model_version: str
     report_path: str
     directories: tuple[DirectoryScoreResult, ...]
+    inference_backend: str = "unknown"
+    inference_device: str = "unknown"
 
     @property
     def successful_directory_count(self) -> int:
@@ -60,6 +62,8 @@ class IndependentScoreResult:
             "root_directory": self.root_directory,
             "generated_at": self.generated_at,
             "model_version": self.model_version,
+            "inference_backend": self.inference_backend,
+            "inference_device": self.inference_device,
             "report_path": self.report_path,
             "successful_directory_count": self.successful_directory_count,
             "failed_directory_count": self.failed_directory_count,

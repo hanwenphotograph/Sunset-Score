@@ -11,13 +11,15 @@ def score_directory(
     *,
     recursive: bool = False,
     interval: int | None = None,
+    cpu_infer: bool = False,
 ) -> ScoreResult:
-    """Score a directory and return only its aggregate conclusion."""
+    """Score a directory, optionally forcing CPU inference."""
 
     return run_directory_score(
         Path(directory),
         recursive=recursive,
         interval=interval,
+        cpu_infer=cpu_infer,
     )
 
 
@@ -25,10 +27,12 @@ def score_directories_independently(
     directory: str | Path,
     *,
     interval: int | None = None,
+    cpu_infer: bool = False,
 ) -> IndependentScoreResult:
-    """Score each valid descendant directory and write a Markdown report."""
+    """Score descendant directories and write a Markdown report."""
 
     return run_independent_directory_scores(
         Path(directory),
         interval=interval,
+        cpu_infer=cpu_infer,
     )

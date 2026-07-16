@@ -9,6 +9,7 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 ## 功能
 
 - 首次下载模型后完全在本地运行，无需 API 密钥或云服务
+- 自动使用兼容 GPU，并支持强制 CPU 与失败自动回退
 - 按相对路径和文件名自然排序，执行确定性采样
 - 使用 `-r` / `--recursive` 扫描完整目录树
 - 可将每个合法后代目录分别分析并生成 Markdown 报告
@@ -25,10 +26,10 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 - Windows 10/11 x64
 - Intel 或 Apple Silicon Mac
 - 主流 Linux x64 发行版
-- 约 1.6 GB 模型与运行时磁盘空间
+- 仅使用 CPU 时约需 1.6 GB，使用托管 CUDA 文件时约需 3.2 GB
 - JPG、JPEG 或 PNG 输入图片
 
-首版不支持 32 位系统、Linux ARM、RAW、HEIC、AVIF 或可配置的 GPU 专用加速。
+SunsetScore 可以在 Windows 上使用受支持 NVIDIA GPU 的 CUDA 后端，在 macOS 上使用 Metal，并在 Windows 或 Linux 上使用受支持 GPU 的 Vulkan 后端。程序不支持 32 位系统、Linux ARM、RAW、HEIC 或 AVIF。
 
 ## 安装
 
@@ -95,6 +96,12 @@ sunsetscore -r -ind /path/to/photos
 sunsetscore /path/to/photos --interval 5 --json
 ```
 
+即使存在兼容 GPU 也强制使用 CPU 推理：
+
+```console
+sunsetscore /path/to/photos --cpu-infer
+```
+
 文本输出：
 
 ```text
@@ -135,7 +142,7 @@ SunsetScore 按大小写不敏感的自然顺序排列受支持图片，例如 `
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-报告包含模型元数据、图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
+报告包含模型、推理后端与设备元数据、图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
 
 ## 本地配置
 
@@ -150,11 +157,20 @@ interval = 10
 
 ## 模型与托管运行时
 
-首次实际评分时，程序会自动下载并校验以下固定组件：
+首次实际评分时，程序会先自动探测可用的加速后端，再下载并校验以下固定组件：
 
-- 当前平台对应的 `llama.cpp b10040` 便携运行时，约 11-18 MB
+- 所选后端对应的 `llama.cpp b10040` 运行时，下载量约 11-640 MB
 - `Qwen3-VL-2B-Instruct Q4_K_M` 主模型，约 1.11 GB
 - `Qwen3-VL-2B-Instruct Q8_0` 视觉投影，约 445 MB
+
+后端选择优先级与适用范围如下：
+
+1. Windows x64 检测到兼容 NVIDIA 驱动时使用 CUDA 12.4
+2. macOS 使用 Metal
+3. Windows 或 Linux 存在 Vulkan 加载器时使用 Vulkan
+4. 所有受支持平台最终均可使用 CPU
+
+程序会先让 GPU 运行时列出实际计算设备，通过自检后才会选用该后端。安装或设备自检失败时会继续尝试下一候选后端；实际 GPU 推理随后失败时会记录原因并直接切换到 CPU。`--cpu-infer` 会跳过 GPU 探测并强制使用 CPU。不同后端共用模型文件，但分别缓存各自的托管运行时。
 
 下载过程支持进度日志、临时文件、HTTP 断点续传、SHA-256 校验、原子安装和一次自动重试。之后可以完全离线运行，但程序仍会检查缓存模型的完整性。
 
@@ -187,7 +203,7 @@ sunsetscore ~/Pictures
 
 ## 性能
 
-在开发电脑上，本地 CPU 对每张采样图片的推理耗时约为 12-13 秒。实际速度取决于 CPU、内存带宽、图片内容和操作系统。
+在开发电脑（`Ryzen 7 9700X` 与 `RTX 5070 Ti 16 GB`）上，同一张图片强制使用 CPU 推理耗时 11.92 秒，CUDA 完成预热后耗时 1.82-1.96 秒，约快 6 倍。安装后的第一次 CUDA 推理因驱动编译并缓存内核而耗时 38.69 秒，后续进程会复用该缓存。实际耗时取决于所选后端，并会写入逐张评分日志。
 
 可以使用以下公式估算耗时：
 
@@ -195,7 +211,7 @@ sunsetscore ~/Pictures
 运行时间 ≈ ceil(图片数量 / 采样间隔) × 单张推理耗时
 ```
 
-例如，约 1,800 张图片在默认间隔 `10` 下会产生约 180 次推理，在开发电脑上需要约 36-39 分钟。首次运行还需要下载约 1.55 GB 模型数据。
+例如，约 1,800 张图片在默认间隔 `10` 下会产生约 180 次推理，在开发电脑上使用 CPU 推理需要约 36-39 分钟。首次运行还需要下载约 1.55 GB 模型数据以及所选运行时。
 
 ## Python API
 
@@ -210,8 +226,11 @@ print(result.max_score)
 
 batch = score_directories_independently("D:/Photo-Sessions", interval=10)
 print(batch.report_path)
+print(batch.inference_backend, batch.inference_device)
 for directory in batch.directories:
     print(directory.directory, directory.average_score, directory.max_score)
+
+cpu_result = score_directory("D:/Photos", cpu_infer=True)
 ```
 
 `ScoreResult` 只公开 `average_score` 和 `max_score`。单张评分、模型理由、成功数量和失败数量会写入运行日志。

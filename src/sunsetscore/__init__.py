@@ -9,4 +9,4 @@ __all__ = [
     "score_directories_independently",
     "score_directory",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

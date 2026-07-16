@@ -31,6 +31,8 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         f"- 输入目录：`{_escape_code(result.root_directory)}`",
         f"- 生成时间：`{result.generated_at}`",
         f"- 评分模型：`{_escape_code(result.model_version)}`",
+        f"- 推理后端：`{_escape_code(result.inference_backend.upper())}`",
+        f"- 推理设备：`{_escape_code(result.inference_device)}`",
         f"- 成功目录：`{result.successful_directory_count}`",
         f"- 失败目录：`{result.failed_directory_count}`",
         "",

@@ -31,12 +31,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = score_directories_independently(
                 args.directory,
                 interval=args.interval,
+                cpu_infer=args.cpu_infer,
             )
         else:
             result = score_directory(
                 args.directory,
                 recursive=args.recursive,
                 interval=args.interval,
+                cpu_infer=args.cpu_infer,
             )
     except SunsetScoreError as exc:
         logger.error("%s", exc)
