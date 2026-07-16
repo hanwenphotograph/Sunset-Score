@@ -101,15 +101,18 @@ def test_independent_alias_prints_directories_and_report(capsys, monkeypatch) ->
         cpu_infer,
         gpu_workers,
         gpu_memory_limit,
+        force,
     ):
-        calls.append((directory, interval, cpu_infer, gpu_workers, gpu_memory_limit))
+        calls.append(
+            (directory, interval, cpu_infer, gpu_workers, gpu_memory_limit, force)
+        )
         return result
 
     monkeypatch.setattr(cli, "score_directories_independently", fake_score)
 
     assert cli.main(["photos", "-r", "-ind", "--interval", "5"]) == 0
     output = capsys.readouterr()
-    assert calls == [(Path("photos"), 5, False, None, None)]
+    assert calls == [(Path("photos"), 5, False, None, None, False)]
     assert "day-1: 平均分 62.50，最高分 91" in output.out
     assert "分析报告: C:/photos/report.md" in output.out
 

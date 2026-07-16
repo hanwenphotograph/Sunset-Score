@@ -19,6 +19,7 @@ def test_cpu_infer_is_forwarded_to_api(capsys, monkeypatch) -> None:
         cpu_infer,
         gpu_workers,
         gpu_memory_limit,
+        force,
     ):
         calls.append(
             (
@@ -28,6 +29,7 @@ def test_cpu_infer_is_forwarded_to_api(capsys, monkeypatch) -> None:
                 cpu_infer,
                 gpu_workers,
                 gpu_memory_limit,
+                force,
             )
         )
         return ScoreResult(average_score=10.0, max_score=10)
@@ -35,7 +37,7 @@ def test_cpu_infer_is_forwarded_to_api(capsys, monkeypatch) -> None:
     monkeypatch.setattr(cli, "score_directory", fake_score)
 
     assert cli.main(["photos", "--cpu-infer"]) == 0
-    assert calls == [(Path("photos"), False, None, True, None, None)]
+    assert calls == [(Path("photos"), False, None, True, None, None, False)]
     assert "平均分: 10.00" in capsys.readouterr().out
 
 
@@ -51,6 +53,20 @@ def test_gpu_limits_are_forwarded_to_api(capsys, monkeypatch) -> None:
     assert cli.main(["photos", "--gpu-workers", "3", "--gpu-memory-limit", "8.5"]) == 0
     assert calls[0][1]["gpu_workers"] == 3
     assert calls[0][1]["gpu_memory_limit"] == 8.5
+    capsys.readouterr()
+
+
+def test_force_is_forwarded_to_api(capsys, monkeypatch) -> None:
+    calls = []
+
+    def fake_score(directory, **kwargs):
+        calls.append((directory, kwargs))
+        return ScoreResult(average_score=10.0, max_score=10)
+
+    monkeypatch.setattr(cli, "score_directory", fake_score)
+
+    assert cli.main(["photos", "--force"]) == 0
+    assert calls[0][1]["force"] is True
     capsys.readouterr()
 
 

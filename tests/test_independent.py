@@ -9,6 +9,7 @@ import pytest
 from sunsetscore.errors import InferenceError, ScoringError
 from sunsetscore.log import configure_logging
 from sunsetscore.results import PhotoScore
+from sunsetscore.score_file import SCORE_FILENAME
 from sunsetscore.independent import run_independent_directory_scores
 
 
@@ -74,6 +75,8 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert first.max_score == 80
     assert second.interval == 10
     assert second.average_score == 40.0
+    assert (tmp_path / "a2" / SCORE_FILENAME).is_file()
+    assert (tmp_path / "a10" / SCORE_FILENAME).is_file()
     assert "root.jpg" not in scorer.seen
     assert Path(result.report_path).name == "sunsetscore-analysis-20260716-123456.md"
     report = Path(result.report_path).read_text(encoding="utf-8")
@@ -101,6 +104,8 @@ def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -
     assert result.directories[0].directory == "bad"
     assert "所有采样照片" in (result.directories[0].error or "")
     assert result.directories[1].average_score == 70.0
+    assert not (tmp_path / "bad" / SCORE_FILENAME).exists()
+    assert (tmp_path / "good" / SCORE_FILENAME).is_file()
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert "## 失败详情" in report
     assert "`bad`" in report

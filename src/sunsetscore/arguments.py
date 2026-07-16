@@ -74,6 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="与递归扫描配合，将每个合法子目录分别分析并生成 Markdown 报告。",
     )
     parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="忽略已有评分文件，重新评分并覆盖该文件。",
+    )
+    parser.add_argument(
         "--interval",
         type=positive_int,
         help="采样间隔，覆盖本地配置中的值，默认值为 10。",

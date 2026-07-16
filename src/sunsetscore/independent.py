@@ -11,6 +11,7 @@ from .inference.scheduling import resolve_inference_plan
 from .log import logger
 from .reporting import write_markdown_report
 from .results import DirectoryScoreResult, IndependentScoreResult
+from .score_file import StoredDirectoryScore, read_score_file
 from .service import ImageScorer, _inference_metadata, run_directory_analysis
 
 
@@ -23,23 +24,36 @@ def run_independent_directory_scores(
     gpu_memory_limit: float | None = None,
     scorer: ImageScorer | None = None,
     generated_at: datetime | None = None,
+    force: bool = False,
 ) -> IndependentScoreResult:
     directories = discover_image_directories(directory)
     root = directory.expanduser().resolve()
     if not directories:
         raise ScoringError("递归范围内没有直接包含 JPG 或 PNG 的合法子目录")
 
-    active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
-    logger.info("发现 %d 个可独立分析的子目录", len(directories))
-    logger.info("评分模型：%s", active_scorer.model_version)
-    backend, device = _inference_metadata(active_scorer)
-    logger.info("推理后端：%s，设备：%s", backend.upper(), device)
-    resolve_inference_plan(
-        active_scorer,
-        1,
-        gpu_workers=gpu_workers,
-        gpu_memory_limit=gpu_memory_limit,
+    cached_scores = {} if force else _read_cached_scores(directories, root)
+    pending_count = len(directories) - len(cached_scores)
+    active_scorer = scorer
+    if pending_count and active_scorer is None:
+        active_scorer = LocalVisionScorer(cpu_infer=cpu_infer)
+
+    logger.info(
+        "发现 %d 个可独立分析的子目录，其中 %d 个将执行评分",
+        len(directories),
+        pending_count,
     )
+    metadata_scorer = active_scorer if pending_count else None
+    model_version, backend, device = _metadata(metadata_scorer, cached_scores)
+    logger.info("评分模型：%s", model_version)
+    logger.info("推理后端：%s，设备：%s", backend.upper(), device)
+    if pending_count:
+        assert active_scorer is not None
+        resolve_inference_plan(
+            active_scorer,
+            1,
+            gpu_workers=gpu_workers,
+            gpu_memory_limit=gpu_memory_limit,
+        )
     results = _score_directories(
         directories,
         root,
@@ -48,14 +62,36 @@ def run_independent_directory_scores(
         gpu_workers=gpu_workers,
         gpu_memory_limit=gpu_memory_limit,
         scorer=active_scorer,
+        cached_scores=cached_scores,
     )
+    if pending_count:
+        model_version, backend, device = _metadata(active_scorer, cached_scores)
     return _write_result(
         root,
         results,
-        active_scorer,
+        model_version=model_version,
+        inference_backend=backend,
+        inference_device=device,
         gpu_memory_limit=gpu_memory_limit,
         generated_at=generated_at,
     )
+
+
+def _read_cached_scores(
+    directories: list[Path],
+    root: Path,
+) -> dict[Path, StoredDirectoryScore]:
+    cached = {}
+    for child in directories:
+        label = child.relative_to(root).as_posix()
+        stored = read_score_file(
+            child,
+            directory_label=label,
+            recursive=False,
+        )
+        if stored is not None:
+            cached[child] = stored
+    return cached
 
 
 def _score_directories(
@@ -66,12 +102,25 @@ def _score_directories(
     cpu_infer: bool,
     gpu_workers: int | None,
     gpu_memory_limit: float | None,
-    scorer: ImageScorer,
+    scorer: ImageScorer | None,
+    cached_scores: dict[Path, StoredDirectoryScore],
 ) -> list[DirectoryScoreResult]:
     results = []
     for index, child in enumerate(directories, start=1):
         label = child.relative_to(root).as_posix()
+        stored = cached_scores.get(child)
+        if stored is not None:
+            logger.info(
+                "[%d/%d] 使用已有评分：%s",
+                index,
+                len(directories),
+                label,
+            )
+            results.append(stored.result)
+            continue
+
         logger.info("[%d/%d] 开始独立分析：%s", index, len(directories), label)
+        assert scorer is not None
         try:
             result = run_directory_analysis(
                 child,
@@ -83,6 +132,7 @@ def _score_directories(
                 scorer=scorer,
                 directory_label=label,
                 log_model=False,
+                force=True,
             )
         except SunsetScoreError as exc:
             logger.error(
@@ -100,21 +150,22 @@ def _score_directories(
 def _write_result(
     root: Path,
     results: list[DirectoryScoreResult],
-    scorer: ImageScorer,
     *,
+    model_version: str,
+    inference_backend: str,
+    inference_device: str,
     gpu_memory_limit: float | None,
     generated_at: datetime | None,
 ) -> IndependentScoreResult:
     timestamp = generated_at or datetime.now().astimezone()
-    backend, device = _inference_metadata(scorer)
     draft = IndependentScoreResult(
         root_directory=str(root),
         generated_at=timestamp.isoformat(timespec="seconds"),
-        model_version=scorer.model_version,
+        model_version=model_version,
         report_path="",
         directories=tuple(results),
-        inference_backend=backend,
-        inference_device=device,
+        inference_backend=inference_backend,
+        inference_device=inference_device,
         gpu_memory_limit_gib=gpu_memory_limit,
     )
     report_path = write_markdown_report(
@@ -124,3 +175,19 @@ def _write_result(
     )
     logger.info("独立目录分析报告：%s", report_path)
     return replace(draft, report_path=str(report_path))
+
+
+def _metadata(
+    scorer: ImageScorer | None,
+    cached_scores: dict[Path, StoredDirectoryScore],
+) -> tuple[str, str, str]:
+    if scorer is not None:
+        backend, device = _inference_metadata(scorer)
+        return scorer.model_version, backend, device
+    metadata = {
+        (item.model_version, item.inference_backend, item.inference_device)
+        for item in cached_scores.values()
+    }
+    if len(metadata) == 1:
+        return next(iter(metadata))
+    return "multiple cached models", "mixed", "mixed"

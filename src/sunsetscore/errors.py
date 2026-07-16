@@ -21,6 +21,10 @@ class ReportError(SunsetScoreError):
     """Raised when an analysis report cannot be generated."""
 
 
+class ScoreFileError(SunsetScoreError):
+    """Raised when a completed score cannot be persisted."""
+
+
 class RuntimeInstallError(SunsetScoreError):
     """Raised when the local inference runtime cannot be prepared."""
 

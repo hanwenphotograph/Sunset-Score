@@ -12,6 +12,7 @@ from .inference.runner import LocalVisionScorer
 from .inference.scheduling import log_inference_plan, resolve_inference_plan
 from .log import logger
 from .results import DirectoryScoreResult, PhotoScore, ScoreResult
+from .score_file import read_score_file, write_score_file
 
 
 class ImageScorer(Protocol):
@@ -42,6 +43,7 @@ def run_directory_score(
     gpu_workers: int | None = None,
     gpu_memory_limit: float | None = None,
     scorer: ImageScorer | None = None,
+    force: bool = False,
 ) -> ScoreResult:
     detail = run_directory_analysis(
         directory,
@@ -51,6 +53,7 @@ def run_directory_score(
         gpu_workers=gpu_workers,
         gpu_memory_limit=gpu_memory_limit,
         scorer=scorer,
+        force=force,
     )
     assert detail.average_score is not None
     assert detail.max_score is not None
@@ -71,13 +74,23 @@ def run_directory_analysis(
     scorer: ImageScorer | None = None,
     directory_label: str | None = None,
     log_model: bool = True,
+    force: bool = False,
 ) -> DirectoryScoreResult:
     images = discover_images(directory, recursive=recursive)
     root = directory.expanduser().resolve()
-    resolved_interval = resolve_interval(root, interval)
+    label = directory_label or str(root)
+    if not force:
+        stored = read_score_file(
+            root,
+            directory_label=label,
+            recursive=recursive,
+        )
+        if stored is not None:
+            return stored.result
     if not images:
         raise ScoringError("输入目录中没有可评分的 JPG 或 PNG 照片")
 
+    resolved_interval = resolve_interval(root, interval)
     samples = sample_images(images, resolved_interval)
     logger.info("扫描完成：共 %d 张照片，采样 %d 张", len(images), len(samples))
     logger.info(
@@ -104,7 +117,7 @@ def run_directory_analysis(
         raise ScoringError("所有采样照片均评分失败，无法生成运行结果")
 
     result = DirectoryScoreResult(
-        directory=directory_label or str(root),
+        directory=label,
         image_count=len(images),
         sampled_count=len(samples),
         successful_count=len(scores),
@@ -115,6 +128,15 @@ def run_directory_analysis(
         max_score=max(scores),
     )
     logger.info("评分完成：成功 %d 张，失败 %d 张", len(scores), failed)
+    backend, device = _inference_metadata(active_scorer)
+    write_score_file(
+        root,
+        result,
+        model_version=active_scorer.model_version,
+        inference_backend=backend,
+        inference_device=device,
+        recursive=recursive,
+    )
     return result
 
 

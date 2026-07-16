@@ -15,8 +15,9 @@ def score_directory(
     cpu_infer: bool = False,
     gpu_workers: int | None = None,
     gpu_memory_limit: float | None = None,
+    force: bool = False,
 ) -> ScoreResult:
-    """Score a directory, optionally forcing CPU inference."""
+    """Score a directory, reusing its score file unless forced."""
 
     return run_directory_score(
         Path(directory),
@@ -25,6 +26,7 @@ def score_directory(
         cpu_infer=cpu_infer,
         gpu_workers=gpu_workers,
         gpu_memory_limit=gpu_memory_limit,
+        force=force,
     )
 
 
@@ -35,8 +37,9 @@ def score_directories_independently(
     cpu_infer: bool = False,
     gpu_workers: int | None = None,
     gpu_memory_limit: float | None = None,
+    force: bool = False,
 ) -> IndependentScoreResult:
-    """Score descendant directories and write a Markdown report."""
+    """Score uncached descendant directories and write a Markdown report."""
 
     return run_independent_directory_scores(
         Path(directory),
@@ -44,4 +47,5 @@ def score_directories_independently(
         cpu_infer=cpu_infer,
         gpu_workers=gpu_workers,
         gpu_memory_limit=gpu_memory_limit,
+        force=force,
     )

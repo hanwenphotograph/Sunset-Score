@@ -14,6 +14,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
+- Persists successful directory scores and reuses them on later runs
 - Reads a strict per-directory TOML configuration file
 - Prints progress, per-image scores, reasons, and timing information
 - Keeps logs on standard error and aggregate results on standard output
@@ -97,6 +98,12 @@ Override the sampling interval and emit a machine-readable result:
 sunsetscore /path/to/photos --interval 5 --json
 ```
 
+Re-score a directory even when it already contains a score file:
+
+```console
+sunsetscore /path/to/photos --force
+```
+
 Force CPU inference even when a compatible GPU is available:
 
 ```console
@@ -151,7 +158,19 @@ At the end of the run, the CLI prints every directory conclusion and writes a re
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model, inference backend, device, maximum concurrency and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend, device, maximum concurrency and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+
+## Score Files
+
+After a directory is scored successfully, SunsetScore writes this JSON file inside that directory:
+
+```text
+.sunsetscore-score.json
+```
+
+A normal or recursive single-directory run writes the file in the input directory. Independent mode writes one file in every successfully scored descendant directory; failed directories do not receive a score file.
+
+On a later run with the same recursive scope, SunsetScore reads the file and skips model initialization and inference. Use `-f` / `--force` to score again and atomically replace the existing file. Changes to photos, sampling configuration, the CLI interval, or the model do not automatically invalidate an existing score, so use `--force` when any of those changes should affect the result. Invalid or unsupported score files are ignored and replaced after a successful run.
 
 ## Local Configuration
 
@@ -251,9 +270,10 @@ limited = score_directory(
     gpu_workers=2,
     gpu_memory_limit=6,
 )
+refreshed = score_directory("D:/Photos", force=True)
 ```
 
-`ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.
+Both public scoring functions reuse score files by default and accept `force=True` to refresh them. `ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.
 
 Unreadable or corrupt sampled images are logged and skipped without selecting a replacement. The run succeeds if at least one sample is scored. An empty input or a run in which every sample fails returns a non-zero exit code and does not emit fabricated scores.
 

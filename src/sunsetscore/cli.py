@@ -40,6 +40,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cpu_infer=args.cpu_infer,
                     gpu_workers=args.gpu_workers,
                     gpu_memory_limit=args.gpu_memory_limit,
+                    force=args.force,
                 )
             else:
                 result = score_directory(
@@ -49,6 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     cpu_infer=args.cpu_infer,
                     gpu_workers=args.gpu_workers,
                     gpu_memory_limit=args.gpu_memory_limit,
+                    force=args.force,
                 )
     except SunsetScoreError as exc:
         logger.error("%s", exc)

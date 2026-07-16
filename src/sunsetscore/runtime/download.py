@@ -85,7 +85,7 @@ def _download(spec: ArtifactSpec, partial: Path) -> None:
     if offset == spec.size:
         return
 
-    headers = {"User-Agent": "SunsetScore/0.4.0"}
+    headers = {"User-Agent": "SunsetScore/0.5.0"}
     if offset:
         headers["Range"] = f"bytes={offset}-"
         logger.info(
