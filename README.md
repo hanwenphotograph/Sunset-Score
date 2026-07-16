@@ -1,106 +1,132 @@
 # SunsetScore
 
-SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔采样目录中的照片，使用本地视觉语言模型计算每张采样照片的晚霞指数，最后输出平均分和最高分。
+[English](README.md) | [简体中文](README_CN.md)
 
-评分是可重复、可比较的模型置信指数，不是经过统计校准的真实概率。程序只判断画面是否具有典型晚霞视觉特征，不使用 EXIF 时间或拍摄地点，因此视觉相似的朝霞也可能获得高分。
+SunsetScore is a cross-platform Python CLI that samples photos from a directory, scores each sampled image for visible sunset-glow characteristics with a local vision-language model, and reports the average and maximum scores.
 
-## 支持范围
+The score is a model-generated confidence index, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so a visually similar sunrise may also receive a high score.
 
-- Python 3.10 及以上版本
+## Features
+
+- Runs locally after the initial model download, without an API key or cloud service
+- Samples deterministically by naturally sorted relative path and filename
+- Scans one directory or an entire directory tree with `-r` / `--recursive`
+- Reads a strict per-directory TOML configuration file
+- Prints progress, per-image scores, reasons, and timing information
+- Keeps logs on standard error and aggregate results on standard output
+- Provides human-readable and JSON CLI output
+- Exposes a small Python API that returns the average and maximum scores
+- Skips individual unreadable images while preserving the rest of the run
+
+## Requirements
+
+- Python 3.10 or newer
 - Windows 10/11 x64
-- macOS Intel 与 Apple Silicon
-- 主流 Linux x64 发行版
-- JPG、JPEG 和 PNG 图片，扩展名大小写不敏感
+- macOS on Intel or Apple Silicon
+- A mainstream Linux x64 distribution
+- Approximately 1.6 GB of disk space for the model and runtime
+- JPG, JPEG, or PNG input images
 
-首版不支持 32 位系统、Linux ARM、RAW、HEIC、AVIF 或 GPU 专用加速配置。
+The first release does not support 32-bit systems, Linux ARM, RAW, HEIC, AVIF, or configurable GPU-specific acceleration.
 
-## 安装
+## Installation
 
-推荐使用 `pipx` 安装，以便自动创建隔离环境并提供全局命令：
+### Install from GitHub with pipx
+
+`pipx` is recommended because it creates an isolated environment and exposes the `sunsetscore` command globally:
 
 ```console
-pipx install .
+pipx install "git+https://github.com/hanwenphotograph/Sunset-Score.git"
 ```
 
-也可以安装到当前 Python 环境：
+### Install into the current Python environment
 
 ```console
+python -m pip install "git+https://github.com/hanwenphotograph/Sunset-Score.git"
+```
+
+### Install from a local checkout
+
+```console
+git clone https://github.com/hanwenphotograph/Sunset-Score.git
+cd Sunset-Score
 python -m pip install .
 ```
 
-安装后可直接运行：
+Verify the command after installation:
 
 ```console
+sunsetscore --version
 sunsetscore --help
 ```
 
-不提供输入目录时，程序只打印完整帮助，不加载或下载模型。
+Running `sunsetscore` without an input directory prints help and does not load or download the model.
 
-## 使用
+## Quick Start
 
-评分当前目录中的照片：
-
-```console
-sunsetscore .
-```
-
-递归扫描所有子目录：
+Score the supported images directly inside a directory:
 
 ```console
-sunsetscore -r D:\Photos\Sunsets
+sunsetscore /path/to/photos
 ```
 
-临时覆盖采样间隔并输出机器可读结果：
+Recursively scan all subdirectories:
 
 ```console
-sunsetscore D:\Photos --interval 5 --json
+sunsetscore -r /path/to/photos
 ```
 
-默认文本结果如下：
+Override the sampling interval and emit a machine-readable result:
+
+```console
+sunsetscore /path/to/photos --interval 5 --json
+```
+
+Human-readable output:
 
 ```text
 平均分: 68.40
 最高分: 93
 ```
 
-`--json` 结果只包含结论：
+JSON output:
 
 ```json
 {"average_score":68.4,"max_score":93}
 ```
 
-运行日志始终写入标准错误，最终文本或 JSON 结论写入标准输出。外部调用方可以单独捕获标准输出，而无需解析日志。
+Runtime logs are always written to standard error. The final text or JSON result is written to standard output, so external callers can capture it without parsing logs.
 
-## 采样规则
+## Sampling Rules
 
-程序按相对路径和文件名进行大小写不敏感的自然排序，例如 `photo2.jpg` 位于 `photo10.jpg` 之前。
+SunsetScore sorts supported images by case-insensitive natural order. For example, `photo2.jpg` comes before `photo10.jpg`.
 
-默认选择排序后的第 `1、11、21、31...` 张照片。即使目录中不足 10 张照片，也会评分第一张照片。递归模式将所有子目录中的照片合并为一个全局序列后再采样。
+With the default interval of `10`, it samples positions `1, 11, 21, 31, ...`. A directory containing fewer than ten supported images still produces one sample. Recursive mode combines all discovered images into one globally sorted sequence before sampling.
 
-符号链接文件、符号链接目录和 Windows 重解析目录不会被扫描。
+Image symlinks, directory symlinks, and Windows reparse directories are ignored. Unsupported file formats are not included in the sequence.
 
-## 本地配置
+## Local Configuration
 
-在输入目录根部创建 `.sunsetscore.toml`：
+Create `.sunsetscore.toml` in the root of the input directory:
 
 ```toml
 [sampling]
 interval = 10
 ```
 
-配置文件采用严格校验。未知字段、错误类型或小于 1 的间隔会直接导致运行失败。优先级从低到高为：内置默认值、本地配置、命令行 `--interval`。
+Configuration is validated strictly. Unknown keys, invalid types, and intervals below `1` stop the run with an error. Precedence from lowest to highest is: built-in default, local configuration, and the `--interval` CLI option.
 
-## 模型与首次运行
+## Model and Managed Runtime
 
-首次实际评分时，程序会自动下载并校验以下固定组件：
+The first scoring run automatically downloads and verifies these pinned components:
 
-- `llama.cpp b10040` 的目标平台便携运行包，约 11-18 MB
-- `Qwen3-VL-2B-Instruct Q4_K_M` 主模型，约 1.11 GB
-- `Qwen3-VL-2B-Instruct Q8_0` 视觉投影，约 445 MB
+- `llama.cpp b10040` portable runtime for the current platform: approximately 11-18 MB
+- `Qwen3-VL-2B-Instruct Q4_K_M` language model: approximately 1.11 GB
+- `Qwen3-VL-2B-Instruct Q8_0` vision projector: approximately 445 MB
 
-下载支持进度显示、临时文件、断点续传、SHA-256 校验和一次自动重试。之后可完全离线运行，但每次启动仍会校验固定模型文件。
+Downloads provide progress logs, temporary files, HTTP resume support, SHA-256 verification, atomic installation, and one automatic retry. Subsequent runs can operate offline, although cached model files are still checked for integrity.
 
-组件默认存放在操作系统的 SunsetScore 用户数据目录中。设置 `SUNSETSCORE_HOME` 可以改为程序旁边或其他位置：
+Managed files are stored in the platform-standard SunsetScore user data directory. Set `SUNSETSCORE_HOME` to place them somewhere else, including next to a portable installation:
 
 ```powershell
 $env:SUNSETSCORE_HOME = "D:\Apps\SunsetScoreData"
@@ -112,11 +138,36 @@ export SUNSETSCORE_HOME="$HOME/apps/sunsetscore-data"
 sunsetscore ~/Pictures
 ```
 
-模型来源为 [Qwen 官方 GGUF 仓库](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF)，推理运行时来源为 [llama.cpp](https://github.com/ggml-org/llama.cpp)。
+Model weights come from the [official Qwen GGUF repository](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF). The inference runtime comes from [llama.cpp](https://github.com/ggml-org/llama.cpp).
+
+## Score Interpretation
+
+The fixed prompt gives the model these intended bands:
+
+- `0-10`: no visible sky or no sunset-related evidence
+- `11-20`: blue, gray, or black sky with no meaningful warm glow
+- `21-49`: limited warm color that may come from ordinary lighting or a filter
+- `50-74`: clearly visible warm sunset glow
+- `75-94`: strong sunset colors or clouds illuminated by sunset glow
+- `95-100`: large, intense, and unambiguous sunset glow
+
+These bands describe the requested rubric, but a small generative vision-language model may not obey every numeric boundary consistently. Treat the scores as a coarse ranking signal and validate thresholds against your own photos before using them for automated decisions. The maximum score is generally more useful for answering whether a long sequence contains any sunset-glow frames, while the average can be diluted by many ordinary frames.
+
+## Performance
+
+On the development machine, local CPU inference took approximately 12-13 seconds per sampled image. Actual performance depends on the CPU, memory bandwidth, image content, and operating system.
+
+An approximate runtime is:
+
+```text
+runtime ≈ ceil(number of images / sampling interval) × time per inference
+```
+
+For example, a directory with about 1,800 images and the default interval of `10` produces about 180 inferences and took roughly 36-39 minutes on the development machine. The first run also needs time to download about 1.55 GB of model data.
 
 ## Python API
 
-Python 调用方可以直接取得结构化结论：
+Python callers can obtain the aggregate conclusion directly:
 
 ```python
 from sunsetscore import score_directory
@@ -126,15 +177,15 @@ print(result.average_score)
 print(result.max_score)
 ```
 
-`ScoreResult` 只公开 `average_score` 和 `max_score`。单张评分、模型理由、成功数量与失败数量只写入运行日志。
+`ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.
 
-损坏或无法读取的采样图片会被记录并跳过，不会自动选择下一张补位。只要至少一张采样图片评分成功，程序就会基于成功结果生成结论；如果没有匹配图片或所有样本失败，则返回非零退出码且不输出伪造分数。
+Unreadable or corrupt sampled images are logged and skipped without selecting a replacement. The run succeeds if at least one sample is scored. An empty input or a run in which every sample fails returns a non-zero exit code and does not emit fabricated scores.
 
-## 开发
+## Development
 
 ```console
 python -m pip install -e ".[test]"
 python -m pytest
 ```
 
-测试默认使用本地替身，不会下载大型模型。真实模型与运行时只在第一次实际评分时安装到程序数据目录。
+The automated test suite uses local substitutes and does not download the large model. The real model and runtime are installed only when an actual scoring run begins.
