@@ -9,6 +9,7 @@ from .arguments import build_parser
 from .errors import SunsetScoreError
 from .log import configure_logging, logger
 from .results import IndependentScoreResult
+from .termination import TerminationRequested, handle_termination_signals
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -27,22 +28,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     configure_logging()
     try:
-        if args.independently:
-            result = score_directories_independently(
-                args.directory,
-                interval=args.interval,
-                cpu_infer=args.cpu_infer,
-            )
-        else:
-            result = score_directory(
-                args.directory,
-                recursive=args.recursive,
-                interval=args.interval,
-                cpu_infer=args.cpu_infer,
-            )
+        with handle_termination_signals():
+            if args.independently:
+                result = score_directories_independently(
+                    args.directory,
+                    interval=args.interval,
+                    cpu_infer=args.cpu_infer,
+                )
+            else:
+                result = score_directory(
+                    args.directory,
+                    recursive=args.recursive,
+                    interval=args.interval,
+                    cpu_infer=args.cpu_infer,
+                )
     except SunsetScoreError as exc:
         logger.error("%s", exc)
         return 1
+    except TerminationRequested as exc:
+        logger.error("运行已收到终止信号：%s", exc.signal_name)
+        return 128 + exc.signal_number
     except KeyboardInterrupt:
         logger.error("运行已由用户中断")
         return 130

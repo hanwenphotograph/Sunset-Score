@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from ..errors import ReportError
+from ..log import logger
 from ..results import DirectoryScoreResult, IndependentScoreResult
 
 
@@ -19,8 +20,9 @@ def write_markdown_report(
         temporary.write_text(build_markdown_report(result), encoding="utf-8")
         os.replace(temporary, path)
     except OSError as exc:
-        temporary.unlink(missing_ok=True)
         raise ReportError(f"无法生成分析报告 {path}: {exc}") from exc
+    finally:
+        _remove_temporary_report(temporary)
     return path
 
 
@@ -102,3 +104,10 @@ def _escape_cell(value: str) -> str:
 
 def _escape_code(value: str) -> str:
     return value.replace("`", "\\`")
+
+
+def _remove_temporary_report(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("无法清理报告临时文件 %s：%s", path, exc)

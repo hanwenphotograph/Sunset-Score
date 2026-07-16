@@ -174,6 +174,8 @@ Each GPU runtime is verified by listing its compute devices before it is selecte
 
 Downloads provide progress logs, temporary files, HTTP resume support, SHA-256 verification, atomic installation, and one automatic retry. Subsequent runs can operate offline, although cached model files are still checked for integrity.
 
+When SunsetScore receives a catchable termination signal, it performs an orderly shutdown and removes incomplete download, runtime-installation, normalized-image, lock, and report temporary data. Verified models and installed runtimes remain cached. An operating-system hard kill cannot run in-process cleanup.
+
 Managed files are stored in the platform-standard SunsetScore user data directory. Set `SUNSETSCORE_HOME` to place them somewhere else, including next to a portable installation:
 
 ```powershell
