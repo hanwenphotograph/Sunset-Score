@@ -19,12 +19,16 @@ class IntegrityError(Exception):
 
 
 def ensure_download(spec: ArtifactSpec, destination: Path) -> Path:
+    partial = destination.with_name(f"{destination.name}.part")
     try:
         return _ensure_download(spec, destination)
     except RuntimeInstallError:
         raise
     except OSError as exc:
         raise RuntimeInstallError(f"无法访问下载文件 {destination}: {exc}") from exc
+    except BaseException:
+        _remove_interrupted_download(partial)
+        raise
 
 
 def _ensure_download(spec: ArtifactSpec, destination: Path) -> Path:
@@ -114,3 +118,14 @@ def _copy_response(
                 next_notice += 10
     if downloaded != spec.size:
         raise IntegrityError(f"下载大小错误，预期 {spec.size}，实际 {downloaded}")
+
+
+def _remove_interrupted_download(partial: Path) -> None:
+    try:
+        existed = partial.exists()
+        partial.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("无法清理未完成下载缓存 %s：%s", partial.name, exc)
+    else:
+        if existed:
+            logger.info("已清理未完成下载缓存：%s", partial.name)
