@@ -14,7 +14,7 @@ from .download import ensure_download
 from .devices import RuntimeCandidate, detect_runtime_candidates
 from .lock import installation_lock
 from .paths import RuntimePaths, get_runtime_paths
-from .probe import probe_gpu_runtime
+from .probe import GpuDeviceInfo, probe_gpu_runtime
 from .specs import (
     LLAMA_RELEASE,
     MODEL_ARTIFACT,
@@ -32,6 +32,8 @@ class RuntimeEnvironment:
     version: str
     backend: str = "cpu"
     device: str = "CPU"
+    total_gpu_memory_mib: int | None = None
+    free_gpu_memory_mib: int | None = None
 
 
 def ensure_runtime_environment(*, force_cpu: bool = False) -> RuntimeEnvironment:
@@ -59,14 +61,16 @@ def ensure_runtime_environment(*, force_cpu: bool = False) -> RuntimeEnvironment
         projector=projector,
         version=f"{MODEL_VERSION} / llama.cpp {LLAMA_RELEASE}",
         backend=candidate.spec.backend,
-        device=device,
+        device=device.label,
+        total_gpu_memory_mib=device.total_memory_mib,
+        free_gpu_memory_mib=device.free_memory_mib,
     )
 
 
 def _select_runtime(
     paths: RuntimePaths,
     candidates: list[RuntimeCandidate],
-) -> tuple[RuntimeCandidate, Path, str]:
+) -> tuple[RuntimeCandidate, Path, GpuDeviceInfo]:
     for candidate in candidates:
         spec = candidate.spec
         if spec.backend != "cpu":
@@ -78,7 +82,7 @@ def _select_runtime(
             device = (
                 probe_gpu_runtime(executable, candidate)
                 if spec.backend != "cpu"
-                else candidate.device_hint
+                else GpuDeviceInfo(candidate.device_hint)
             )
         except RuntimeInstallError as exc:
             if spec.backend == "cpu":
@@ -87,7 +91,7 @@ def _select_runtime(
                 "%s 后端不可用，将尝试下一后端：%s", spec.backend.upper(), exc
             )
             continue
-        logger.info("推理后端：%s，设备：%s", spec.backend.upper(), device)
+        logger.info("推理后端：%s，设备：%s", spec.backend.upper(), device.label)
         return candidate, executable, device
     raise RuntimeInstallError("没有可用的本地推理运行时")
 

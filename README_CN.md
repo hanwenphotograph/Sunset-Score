@@ -10,6 +10,7 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 
 - 首次下载模型后完全在本地运行，无需 API 密钥或云服务
 - 自动使用兼容 GPU，并支持强制 CPU 与失败自动回退
+- 根据检测到的显存预算并发执行多个 GPU 推理
 - 按相对路径和文件名自然排序，执行确定性采样
 - 使用 `-r` / `--recursive` 扫描完整目录树
 - 可将每个合法后代目录分别分析并生成 Markdown 报告
@@ -102,6 +103,14 @@ sunsetscore /path/to/photos --interval 5 --json
 sunsetscore /path/to/photos --cpu-infer
 ```
 
+限制 GPU 并发数、调度显存预算，或同时限制两者：
+
+```console
+sunsetscore /path/to/photos --gpu-workers 2
+sunsetscore /path/to/photos --gpu-memory-limit 6
+sunsetscore /path/to/photos --gpu-workers 3 --gpu-memory-limit 10
+```
+
 文本输出：
 
 ```text
@@ -142,7 +151,7 @@ SunsetScore 按大小写不敏感的自然顺序排列受支持图片，例如 `
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-报告包含模型、推理后端与设备元数据、图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
+报告包含模型、推理后端、设备、最大并发数与显存限制元数据，以及图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
 
 ## 本地配置
 
@@ -171,6 +180,8 @@ interval = 10
 4. 所有受支持平台最终均可使用 CPU
 
 程序会先让 GPU 运行时列出实际计算设备，通过自检后才会选用该后端。安装或设备自检失败时会继续尝试下一候选后端；实际 GPU 推理随后失败时会记录原因并直接切换到 CPU。`--cpu-infer` 会跳过 GPU 探测并强制使用 CPU。不同后端共用模型文件，但分别缓存各自的托管运行时。
+
+当批次包含多张采样图片时，SunsetScore 会并发执行 GPU 推理。自动调度会从当前空闲显存中预留 1 GiB，按每个工作进程 3 GiB 估算，且最多使用 4 个工作进程。`--gpu-workers` 用于设置并发数上限。`--gpu-memory-limit` 用于设置 GiB 为单位的调度预算，最小值为 `3`；这是估算并发数的预算，不是由显卡驱动强制执行的显存硬上限。程序会保守地组合检测到的空闲显存和两个手动限制。GPU 限制参数不能与 `--cpu-infer` 同时使用。
 
 下载过程支持进度日志、临时文件、HTTP 断点续传、SHA-256 校验、原子安装和一次自动重试。之后可以完全离线运行，但程序仍会检查缓存模型的完整性。
 
@@ -203,12 +214,13 @@ sunsetscore ~/Pictures
 
 ## 性能
 
-在开发电脑（`Ryzen 7 9700X` 与 `RTX 5070 Ti 16 GB`）上，同一张图片强制使用 CPU 推理耗时 11.92 秒，CUDA 完成预热后耗时 1.82-1.96 秒，约快 6 倍。安装后的第一次 CUDA 推理因驱动编译并缓存内核而耗时 38.69 秒，后续进程会复用该缓存。实际耗时取决于所选后端，并会写入逐张评分日志。
+在开发电脑（`Ryzen 7 9700X` 与 `RTX 5070 Ti 16 GB`）上，8 张真实样本使用 1 个 CUDA 工作进程的端到端耗时为 16.1 秒，自动选择 4 个工作进程时为 7.9 秒，吞吐提高约 2.04 倍。设置 6 GiB 限制后会选择 2 个工作进程，耗时 10.4 秒。并发提高到 6 或 8 后性能明显恶化，因此自动调度最多使用 4 个工作进程。安装后的第一次 CUDA 推理因驱动编译并缓存内核而耗时 38.69 秒，后续单张推理耗时 1.82-1.96 秒。
 
 可以使用以下公式估算耗时：
 
 ```text
-运行时间 ≈ ceil(图片数量 / 采样间隔) × 单张推理耗时
+采样数 ≈ ceil(图片数量 / 采样间隔)
+运行时间 ≈ ceil(采样数 / 并发数) × 并发批次耗时
 ```
 
 例如，约 1,800 张图片在默认间隔 `10` 下会产生约 180 次推理，在开发电脑上使用 CPU 推理需要约 36-39 分钟。首次运行还需要下载约 1.55 GB 模型数据以及所选运行时。
@@ -227,10 +239,16 @@ print(result.max_score)
 batch = score_directories_independently("D:/Photo-Sessions", interval=10)
 print(batch.report_path)
 print(batch.inference_backend, batch.inference_device)
+print(batch.inference_workers, batch.gpu_memory_limit_gib)
 for directory in batch.directories:
     print(directory.directory, directory.average_score, directory.max_score)
 
 cpu_result = score_directory("D:/Photos", cpu_infer=True)
+limited = score_directory(
+    "D:/Photos",
+    gpu_workers=2,
+    gpu_memory_limit=6,
+)
 ```
 
 `ScoreResult` 只公开 `average_score` 和 `max_score`。单张评分、模型理由、成功数量和失败数量会写入运行日志。

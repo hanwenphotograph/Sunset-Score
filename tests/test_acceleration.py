@@ -74,9 +74,36 @@ def test_gpu_probe_returns_runtime_device_line(tmp_path, monkeypatch) -> None:
         ),
     )
 
-    assert probe.probe_gpu_runtime(tmp_path / "llama.exe", candidate) == (
-        "CUDA0: NVIDIA Test GPU"
+    device = probe.probe_gpu_runtime(tmp_path / "llama.exe", candidate)
+
+    assert device.label == "CUDA0: NVIDIA Test GPU"
+    assert device.total_memory_mib is None
+    assert device.free_memory_mib is None
+
+
+def test_gpu_probe_extracts_memory_capacity(tmp_path, monkeypatch) -> None:
+    candidate = RuntimeCandidate(
+        detect_runtime_spec("Windows", "AMD64", "cuda"),
+        "NVIDIA Test GPU",
     )
+    monkeypatch.setattr(
+        probe.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            0,
+            stdout=(
+                "Available devices:\n"
+                "  CUDA0: NVIDIA Test GPU (16302 MiB, 15009 MiB free)\n"
+            ),
+            stderr="",
+        ),
+    )
+
+    device = probe.probe_gpu_runtime(tmp_path / "llama.exe", candidate)
+
+    assert device.total_memory_mib == 16302
+    assert device.free_memory_mib == 15009
 
 
 def test_gpu_probe_rejects_missing_backend_device(tmp_path, monkeypatch) -> None:

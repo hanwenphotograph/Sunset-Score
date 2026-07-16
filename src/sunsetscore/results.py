@@ -25,6 +25,7 @@ class DirectoryScoreResult:
     successful_count: int = 0
     failed_count: int = 0
     interval: int | None = None
+    inference_workers: int = 1
     average_score: float | None = None
     max_score: int | None = None
     error: str | None = None
@@ -48,6 +49,7 @@ class IndependentScoreResult:
     directories: tuple[DirectoryScoreResult, ...]
     inference_backend: str = "unknown"
     inference_device: str = "unknown"
+    gpu_memory_limit_gib: float | None = None
 
     @property
     def successful_directory_count(self) -> int:
@@ -57,6 +59,10 @@ class IndependentScoreResult:
     def failed_directory_count(self) -> int:
         return len(self.directories) - self.successful_directory_count
 
+    @property
+    def inference_workers(self) -> int:
+        return max((item.inference_workers for item in self.directories), default=1)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "root_directory": self.root_directory,
@@ -64,6 +70,8 @@ class IndependentScoreResult:
             "model_version": self.model_version,
             "inference_backend": self.inference_backend,
             "inference_device": self.inference_device,
+            "inference_workers": self.inference_workers,
+            "gpu_memory_limit_gib": self.gpu_memory_limit_gib,
             "report_path": self.report_path,
             "successful_directory_count": self.successful_directory_count,
             "failed_directory_count": self.failed_directory_count,

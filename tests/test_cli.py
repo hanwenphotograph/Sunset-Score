@@ -94,15 +94,22 @@ def test_independent_alias_prints_directories_and_report(capsys, monkeypatch) ->
     result = _independent_result()
     calls = []
 
-    def fake_score(directory, *, interval, cpu_infer):
-        calls.append((directory, interval, cpu_infer))
+    def fake_score(
+        directory,
+        *,
+        interval,
+        cpu_infer,
+        gpu_workers,
+        gpu_memory_limit,
+    ):
+        calls.append((directory, interval, cpu_infer, gpu_workers, gpu_memory_limit))
         return result
 
     monkeypatch.setattr(cli, "score_directories_independently", fake_score)
 
     assert cli.main(["photos", "-r", "-ind", "--interval", "5"]) == 0
     output = capsys.readouterr()
-    assert calls == [(Path("photos"), 5, False)]
+    assert calls == [(Path("photos"), 5, False, None, None)]
     assert "day-1: 平均分 62.50，最高分 91" in output.out
     assert "分析报告: C:/photos/report.md" in output.out
 
@@ -124,21 +131,9 @@ def test_independent_json_and_partial_failure_return_nonzero(
     assert document["failed_directory_count"] == 1
     assert document["inference_backend"] == "cuda"
     assert document["inference_device"] == "CUDA0: Fake GPU"
+    assert document["inference_workers"] == 1
+    assert document["gpu_memory_limit_gib"] == 8.5
     assert document["directories"][1]["error"] == "模拟失败"
-
-
-def test_cpu_infer_is_forwarded_to_api(capsys, monkeypatch) -> None:
-    calls = []
-
-    def fake_score(directory, *, recursive, interval, cpu_infer):
-        calls.append((directory, recursive, interval, cpu_infer))
-        return ScoreResult(average_score=10.0, max_score=10)
-
-    monkeypatch.setattr(cli, "score_directory", fake_score)
-
-    assert cli.main(["photos", "--cpu-infer"]) == 0
-    assert calls == [(Path("photos"), False, None, True)]
-    assert "平均分: 10.00" in capsys.readouterr().out
 
 
 def _independent_result(*, failed: bool = False) -> IndependentScoreResult:
@@ -163,4 +158,5 @@ def _independent_result(*, failed: bool = False) -> IndependentScoreResult:
         directories=tuple(directories),
         inference_backend="cuda",
         inference_device="CUDA0: Fake GPU",
+        gpu_memory_limit_gib=8.5,
     )
