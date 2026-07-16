@@ -15,6 +15,25 @@ _NUMBER_PATTERN = re.compile(r"(\d+)")
 
 
 def discover_images(input_directory: Path, *, recursive: bool) -> list[Path]:
+    root = _resolve_input_directory(input_directory)
+    images = list(_walk(root, recursive=recursive, is_root=True))
+    images.sort(key=lambda path: natural_path_key(path.relative_to(root)))
+    return images
+
+
+def discover_image_directories(input_directory: Path) -> list[Path]:
+    """Find descendant directories that directly contain supported images."""
+
+    root = _resolve_input_directory(input_directory)
+    images = _walk(root, recursive=True, is_root=True)
+    directories = {image.parent for image in images if image.parent != root}
+    return sorted(
+        directories,
+        key=lambda path: natural_path_key(path.relative_to(root)),
+    )
+
+
+def _resolve_input_directory(input_directory: Path) -> Path:
     root = input_directory.expanduser()
     if _is_link_or_reparse(root):
         raise InputError(f"输入目录不能是符号链接或重解析点: {root}")
@@ -23,10 +42,7 @@ def discover_images(input_directory: Path, *, recursive: bool) -> list[Path]:
     if not root.is_dir():
         raise InputError(f"输入路径不是目录: {root}")
 
-    root = root.resolve()
-    images = list(_walk(root, recursive=recursive, is_root=True))
-    images.sort(key=lambda path: natural_path_key(path.relative_to(root)))
-    return images
+    return root.resolve()
 
 
 def sample_images(images: list[Path], interval: int) -> list[Path]:

@@ -57,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="递归扫描输入目录，但不跟随符号链接。",
     )
     parser.add_argument(
+        "-ind",
+        "--independently",
+        action="store_true",
+        help="与递归扫描配合，将每个合法子目录分别分析并生成 Markdown 报告。",
+    )
+    parser.add_argument(
         "--interval",
         type=positive_int,
         help="采样间隔，覆盖本地配置中的值，默认值为 10。",

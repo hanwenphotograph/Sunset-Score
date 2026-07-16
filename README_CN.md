@@ -11,6 +11,7 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 - 首次下载模型后完全在本地运行，无需 API 密钥或云服务
 - 按相对路径和文件名自然排序，执行确定性采样
 - 使用 `-r` / `--recursive` 扫描完整目录树
+- 可将每个合法后代目录分别分析并生成 Markdown 报告
 - 读取输入目录中的严格 TOML 配置
 - 打印进度、逐张分数、判分理由和耗时
 - 日志写入标准错误，汇总结论写入标准输出
@@ -76,6 +77,18 @@ sunsetscore /path/to/photos
 sunsetscore -r /path/to/photos
 ```
 
+分别分析每个合法后代目录并生成报告：
+
+```console
+sunsetscore -r --independently /path/to/photos
+```
+
+也可以使用较短的 `-ind` 别名：
+
+```console
+sunsetscore -r -ind /path/to/photos
+```
+
 临时覆盖采样间隔并输出机器可读结果：
 
 ```console
@@ -104,6 +117,25 @@ SunsetScore 按大小写不敏感的自然顺序排列受支持图片，例如 `
 默认间隔为 `10`，对应采样位置 `1、11、21、31...`。目录中不足十张受支持图片时仍会采样第一张。递归模式会先把所有发现的图片合并为一个全局排序序列，再执行采样。
 
 图片符号链接、目录符号链接和 Windows 重解析目录会被忽略，不受支持的文件格式不会进入采样序列。
+
+## 独立目录分析
+
+`--independently` / `-ind` 只能与 `-r` / `--recursive` 一起使用。此模式会递归查找每个直接包含至少一张受支持图片的后代目录，并把每个目录视为一个独立序列进行分析。
+
+- 输入根目录直接包含的图片不参与分析
+- 每个后代目录只处理自己直接包含的图片
+- 空目录和只包含不受支持文件的目录会被忽略
+- 每个目录读取自己的 `.sunsetscore.toml`
+- 命令行 `--interval` 会覆盖所有目录的本地配置
+- 单个目录失败会被记录，不会丢弃其他成功目录的结果
+
+运行结束后，CLI 会打印所有目录的结论，并在输入根目录下写入报告：
+
+```text
+sunsetscore-analysis-YYYYMMDD-HHMMSS.md
+```
+
+报告包含模型元数据、图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
 
 ## 本地配置
 
@@ -170,11 +202,16 @@ sunsetscore ~/Pictures
 Python 调用方可以直接取得汇总结论：
 
 ```python
-from sunsetscore import score_directory
+from sunsetscore import score_directories_independently, score_directory
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
 print(result.average_score)
 print(result.max_score)
+
+batch = score_directories_independently("D:/Photo-Sessions", interval=10)
+print(batch.report_path)
+for directory in batch.directories:
+    print(directory.directory, directory.average_score, directory.max_score)
 ```
 
 `ScoreResult` 只公开 `average_score` 和 `max_score`。单张评分、模型理由、成功数量和失败数量会写入运行日志。

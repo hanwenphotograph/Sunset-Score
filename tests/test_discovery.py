@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from sunsetscore.discovery import discover_images, sample_images
+from sunsetscore.discovery import (
+    discover_image_directories,
+    discover_images,
+    sample_images,
+)
 from sunsetscore.errors import InputError
 
 
@@ -38,6 +42,22 @@ def test_recursive_scan_is_one_global_relative_path_sequence(tmp_path) -> None:
         "a2/photo1.jpg",
         "a10/photo1.jpg",
         "b/photo1.jpg",
+    ]
+
+
+def test_independent_directories_are_descendants_with_direct_images(tmp_path) -> None:
+    _touch(tmp_path / "root.jpg")
+    _touch(tmp_path / "a10" / "photo.jpg")
+    _touch(tmp_path / "a2" / "photo.jpg")
+    _touch(tmp_path / "parent" / "child" / "photo.jpg")
+    (tmp_path / "empty").mkdir()
+
+    directories = discover_image_directories(tmp_path)
+
+    assert [path.relative_to(tmp_path).as_posix() for path in directories] == [
+        "a2",
+        "a10",
+        "parent/child",
     ]
 
 

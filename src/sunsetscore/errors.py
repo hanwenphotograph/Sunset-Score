@@ -17,6 +17,10 @@ class ScoringError(SunsetScoreError):
     """Raised when a run cannot produce a valid aggregate score."""
 
 
+class ReportError(SunsetScoreError):
+    """Raised when an analysis report cannot be generated."""
+
+
 class RuntimeInstallError(SunsetScoreError):
     """Raised when the local inference runtime cannot be prepared."""
 

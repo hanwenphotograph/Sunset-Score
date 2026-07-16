@@ -11,6 +11,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 - Runs locally after the initial model download, without an API key or cloud service
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
+- Optionally analyzes every valid descendant directory independently and writes a Markdown report
 - Reads a strict per-directory TOML configuration file
 - Prints progress, per-image scores, reasons, and timing information
 - Keeps logs on standard error and aggregate results on standard output
@@ -76,6 +77,18 @@ Recursively scan all subdirectories:
 sunsetscore -r /path/to/photos
 ```
 
+Analyze each valid descendant directory independently and generate a report:
+
+```console
+sunsetscore -r --independently /path/to/photos
+```
+
+The shorter `-ind` alias is also available:
+
+```console
+sunsetscore -r -ind /path/to/photos
+```
+
 Override the sampling interval and emit a machine-readable result:
 
 ```console
@@ -104,6 +117,25 @@ SunsetScore sorts supported images by case-insensitive natural order. For exampl
 With the default interval of `10`, it samples positions `1, 11, 21, 31, ...`. A directory containing fewer than ten supported images still produces one sample. Recursive mode combines all discovered images into one globally sorted sequence before sampling.
 
 Image symlinks, directory symlinks, and Windows reparse directories are ignored. Unsupported file formats are not included in the sequence.
+
+## Independent Directory Analysis
+
+`--independently` / `-ind` is valid only together with `-r` / `--recursive`. In this mode, SunsetScore recursively finds every descendant directory that directly contains at least one supported image and analyzes each directory as a separate sequence.
+
+- Images directly inside the input root are excluded
+- Each descendant directory processes only its own direct images
+- Empty directories and directories containing only unsupported files are ignored
+- Each directory reads its own `.sunsetscore.toml`
+- A CLI `--interval` value overrides every local directory configuration
+- One failed directory is recorded without discarding successful directory results
+
+At the end of the run, the CLI prints every directory conclusion and writes a report under the input root:
+
+```text
+sunsetscore-analysis-YYYYMMDD-HHMMSS.md
+```
+
+The report contains model metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
 
 ## Local Configuration
 
@@ -170,11 +202,16 @@ For example, a directory with about 1,800 images and the default interval of `10
 Python callers can obtain the aggregate conclusion directly:
 
 ```python
-from sunsetscore import score_directory
+from sunsetscore import score_directories_independently, score_directory
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
 print(result.average_score)
 print(result.max_score)
+
+batch = score_directories_independently("D:/Photo-Sessions", interval=10)
+print(batch.report_path)
+for directory in batch.directories:
+    print(directory.directory, directory.average_score, directory.max_score)
 ```
 
 `ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.
