@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -9,7 +8,7 @@ from .errors import ScoringError, SunsetScoreError
 from .inference.runner import LocalVisionScorer
 from .inference.scheduling import resolve_inference_plan
 from .log import logger
-from .reporting import write_markdown_report
+from .reporting import finalize_independent_result
 from .results import DirectoryScoreResult, IndependentScoreResult
 from .score_file import StoredDirectoryScore, read_score_file
 from .service import ImageScorer, _inference_metadata, run_directory_analysis
@@ -67,7 +66,7 @@ def run_independent_directory_scores(
         )
         if pending_count:
             model_version, backend, device = _metadata(active_scorer, cached_scores)
-        return _write_result(
+        return finalize_independent_result(
             root,
             results,
             model_version=model_version,
@@ -75,6 +74,7 @@ def run_independent_directory_scores(
             inference_device=device,
             gpu_memory_limit=gpu_memory_limit,
             generated_at=generated_at,
+            reuse_existing_report=pending_count == 0,
         )
     finally:
         if owned_scorer:
@@ -150,36 +150,6 @@ def _score_directories(
             result = DirectoryScoreResult(directory=label, error=str(exc))
         results.append(result)
     return results
-
-
-def _write_result(
-    root: Path,
-    results: list[DirectoryScoreResult],
-    *,
-    model_version: str,
-    inference_backend: str,
-    inference_device: str,
-    gpu_memory_limit: float | None,
-    generated_at: datetime | None,
-) -> IndependentScoreResult:
-    timestamp = generated_at or datetime.now().astimezone()
-    draft = IndependentScoreResult(
-        root_directory=str(root),
-        generated_at=timestamp.isoformat(timespec="seconds"),
-        model_version=model_version,
-        report_path="",
-        directories=tuple(results),
-        inference_backend=inference_backend,
-        inference_device=inference_device,
-        gpu_memory_limit_gib=gpu_memory_limit,
-    )
-    report_path = write_markdown_report(
-        draft,
-        root,
-        filename_timestamp=timestamp.strftime("%Y%m%d-%H%M%S"),
-    )
-    logger.info("独立目录分析报告：%s", report_path)
-    return replace(draft, report_path=str(report_path))
 
 
 def _metadata(

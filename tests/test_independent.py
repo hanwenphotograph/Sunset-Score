@@ -115,7 +115,7 @@ def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -
     assert "`bad`" in report
 
 
-def test_report_name_does_not_overwrite_existing_report(tmp_path) -> None:
+def test_cached_run_reuses_report_and_new_inference_creates_report(tmp_path) -> None:
     _photo(tmp_path / "child" / "photo.jpg")
     scorer = FakeScorer({"photo.jpg": 20})
     timestamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -132,9 +132,24 @@ def test_report_name_does_not_overwrite_existing_report(tmp_path) -> None:
         scorer=scorer,
         generated_at=timestamp,
     )
+    third = run_independent_directory_scores(
+        tmp_path,
+        interval=1,
+        scorer=scorer,
+        generated_at=timestamp,
+        force=True,
+    )
+    fourth = run_independent_directory_scores(
+        tmp_path,
+        interval=1,
+        scorer=scorer,
+        generated_at=timestamp,
+    )
 
     assert Path(first.report_path).name == "sunsetscore-analysis-20260102-030405.md"
-    assert Path(second.report_path).name == "sunsetscore-analysis-20260102-030405-2.md"
+    assert second.report_path == first.report_path
+    assert Path(third.report_path).name == "sunsetscore-analysis-20260102-030405-2.md"
+    assert fourth.report_path == third.report_path
 
 
 def test_independent_analysis_requires_a_valid_descendant_directory(tmp_path) -> None:

@@ -25,6 +25,10 @@ class ScoreFileError(SunsetScoreError):
     """Raised when a completed score cannot be persisted."""
 
 
+class AutopackError(SunsetScoreError):
+    """Raised when sunset photos cannot be copied into the result directory."""
+
+
 class RuntimeInstallError(SunsetScoreError):
     """Raised when the local inference runtime cannot be prepared."""
 

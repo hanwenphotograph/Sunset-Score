@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 from typing import Sequence
 
 from .api import score_directories_independently, score_directory
 from .arguments import build_parser
+from .autopack.packer import (
+    AutopackResult,
+    pack_independent_result,
+    pack_score_result,
+)
 from .errors import SunsetScoreError
 from .log import configure_logging, logger
-from .results import IndependentScoreResult, SunsetRange
+from .results import IndependentScoreResult, ScoreResult, SunsetRange
 from .termination import TerminationRequested, handle_termination_signals
 
 
@@ -52,6 +58,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     gpu_memory_limit=args.gpu_memory_limit,
                     force=args.force,
                 )
+            packed = (
+                _pack_result(args.directory, result, recursive=args.recursive)
+                if args.autopack
+                else None
+            )
     except SunsetScoreError as exc:
         logger.error("%s", exc)
         return 1
@@ -71,6 +82,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"最高分: {result.max_score}")
         print(f"检测到晚霞: {_yes_no(result.has_sunset)}")
         print(f"晚霞区间: {_format_ranges(result.sunset_ranges)}")
+    if packed is not None and not args.json:
+        print(f"晚霞打包目录: {packed.output_directory}")
+        print(
+            f"已打包照片: {packed.photo_count} 张，"
+            f"来源目录: {packed.source_directory_count} 个"
+        )
     if isinstance(result, IndependentScoreResult) and result.failed_directory_count:
         return 1
     return 0
@@ -104,6 +121,17 @@ def _format_ranges(ranges: Sequence[SunsetRange]) -> str:
         else f"{item.start_photo} 至 {item.end_photo}"
         for item in ranges
     )
+
+
+def _pack_result(
+    directory: Path,
+    result: ScoreResult | IndependentScoreResult,
+    *,
+    recursive: bool,
+) -> AutopackResult:
+    if isinstance(result, IndependentScoreResult):
+        return pack_independent_result(directory, result)
+    return pack_score_result(directory, result, recursive=recursive)
 
 
 if __name__ == "__main__":

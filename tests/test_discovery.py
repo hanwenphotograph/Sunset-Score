@@ -61,6 +61,21 @@ def test_independent_directories_are_descendants_with_direct_images(tmp_path) ->
     ]
 
 
+def test_generated_sunset_result_is_excluded_from_recursive_scans(tmp_path) -> None:
+    _touch(tmp_path / "source" / "photo.jpg")
+    _touch(tmp_path / "SunsetResult" / "source" / "photo.jpg")
+
+    images = discover_images(tmp_path, recursive=True)
+    directories = discover_image_directories(tmp_path)
+
+    assert [path.relative_to(tmp_path).as_posix() for path in images] == [
+        "source/photo.jpg"
+    ]
+    assert [path.relative_to(tmp_path).as_posix() for path in directories] == [
+        "source"
+    ]
+
+
 def test_sampling_starts_with_first_image() -> None:
     images = [Path(f"{number}.jpg") for number in range(1, 25)]
 

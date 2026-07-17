@@ -88,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="忽略已有评分文件，重新评分并覆盖该文件。",
     )
     parser.add_argument(
+        "--autopack",
+        action="store_true",
+        help="将晚霞区间照片复制到输入目录的 SunsetResult 文件夹。",
+    )
+    parser.add_argument(
         "--interval",
         type=positive_int,
         help="采样间隔，覆盖本地配置中的值，默认值为 10。",

@@ -1,0 +1,1 @@
+OUTPUT_DIRECTORY_NAME = "SunsetResult"

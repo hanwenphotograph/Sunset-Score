@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 
 from ..errors import ReportError
 from ..log import logger
 from ..results import DirectoryScoreResult, IndependentScoreResult, SunsetRange
+
+
+_REPORT_NAME_PATTERN = re.compile(
+    r"sunsetscore-analysis-(\d{8}-\d{6})(?:-(\d+))?\.md"
+)
 
 
 def write_markdown_report(
@@ -24,6 +30,22 @@ def write_markdown_report(
     finally:
         _remove_temporary_report(temporary)
     return path
+
+
+def latest_markdown_report(output_directory: Path) -> Path | None:
+    reports = [
+        path
+        for path in output_directory.glob("sunsetscore-analysis-*.md")
+        if path.is_file() and not path.is_symlink()
+    ]
+    return max(reports, key=_report_name_key, default=None)
+
+
+def _report_name_key(path: Path) -> tuple[str, int, str]:
+    match = _REPORT_NAME_PATTERN.fullmatch(path.name)
+    if match is None:
+        return "", 0, path.name
+    return match.group(1), int(match.group(2) or 1), path.name
 
 
 def build_markdown_report(result: IndependentScoreResult) -> str:

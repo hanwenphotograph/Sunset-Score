@@ -6,6 +6,7 @@ import re
 import stat
 from typing import Iterator
 
+from .autopack.settings import OUTPUT_DIRECTORY_NAME
 from .errors import InputError
 from .log import logger
 
@@ -16,7 +17,14 @@ _NUMBER_PATTERN = re.compile(r"(\d+)")
 
 def discover_images(input_directory: Path, *, recursive: bool) -> list[Path]:
     root = _resolve_input_directory(input_directory)
-    images = list(_walk(root, recursive=recursive, is_root=True))
+    images = list(
+        _walk(
+            root,
+            recursive=recursive,
+            is_root=True,
+            excluded_directory=root / OUTPUT_DIRECTORY_NAME,
+        )
+    )
     images.sort(key=lambda path: natural_path_key(path.relative_to(root)))
     return images
 
@@ -25,7 +33,12 @@ def discover_image_directories(input_directory: Path) -> list[Path]:
     """Find descendant directories that directly contain supported images."""
 
     root = _resolve_input_directory(input_directory)
-    images = _walk(root, recursive=True, is_root=True)
+    images = _walk(
+        root,
+        recursive=True,
+        is_root=True,
+        excluded_directory=root / OUTPUT_DIRECTORY_NAME,
+    )
     directories = {image.parent for image in images if image.parent != root}
     return sorted(
         directories,
@@ -66,7 +79,13 @@ def _natural_text_key(value: str) -> tuple[tuple[int, object], ...]:
     return tuple(chunks)
 
 
-def _walk(directory: Path, *, recursive: bool, is_root: bool) -> Iterator[Path]:
+def _walk(
+    directory: Path,
+    *,
+    recursive: bool,
+    is_root: bool,
+    excluded_directory: Path,
+) -> Iterator[Path]:
     try:
         with os.scandir(directory) as entries:
             current = list(entries)
@@ -85,7 +104,15 @@ def _walk(directory: Path, *, recursive: bool, is_root: bool) -> Iterator[Path]:
                 if path.suffix.casefold() in SUPPORTED_SUFFIXES:
                     yield path
             elif recursive and entry.is_dir(follow_symlinks=False):
-                yield from _walk(Path(entry.path), recursive=True, is_root=False)
+                child = Path(entry.path)
+                if child == excluded_directory:
+                    continue
+                yield from _walk(
+                    child,
+                    recursive=True,
+                    is_root=False,
+                    excluded_directory=excluded_directory,
+                )
         except OSError as exc:
             logger.warning("跳过无法访问的路径 %s: %s", entry.path, exc)
 

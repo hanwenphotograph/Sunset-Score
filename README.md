@@ -14,6 +14,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
+- Copies complete detected sunset ranges into a managed `SunsetResult` directory with `--autopack`
 - Persists successful directory scores and reuses them on later runs
 - Reads a strict per-directory TOML configuration file
 - Prints progress, per-image scores, reasons, and timing information
@@ -104,6 +105,13 @@ Re-score a directory even when it already contains a score file:
 sunsetscore /path/to/photos --force
 ```
 
+Copy every original photo inside detected sunset ranges into `SunsetResult`:
+
+```console
+sunsetscore /path/to/photos --autopack
+sunsetscore -r -ind /path/to/photo-sessions --autopack
+```
+
 Force CPU inference even when a compatible GPU is available:
 
 ```console
@@ -154,13 +162,23 @@ Image symlinks, directory symlinks, and Windows reparse directories are ignored.
 - A CLI `--interval` value overrides every local directory configuration
 - One failed directory is recorded without discarding successful directory results
 
-At the end of the run, the CLI prints every directory conclusion and writes a report under the input root:
+At the end of a run that performs inference, the CLI prints every directory conclusion and writes a report under the input root:
 
 ```text
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model, inference backend, device, inference-slot and memory-limit metadata, image and sample counts, the Boolean detection, sunset ranges, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend, device, inference-slot and memory-limit metadata, image and sample counts, the Boolean detection, sunset ranges, average and maximum scores, status, and failure details. New reports never overwrite existing files. A run that uses only compatible cached scores reuses the newest existing report instead of creating a duplicate; it creates one only when no report exists. If any directory fails, a new inference report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+
+## Automatic Packing
+
+`--autopack` creates `SunsetResult` under the input directory. For each detected range, SunsetScore copies every supported original photo from the start endpoint through the end endpoint in natural sequence order, not only the sampled endpoint photos.
+
+For a direct directory, photos are written directly under `SunsetResult`. Recursive single-directory runs preserve source-relative paths. Independent-directory runs also preserve each source directory below `SunsetResult`, so identically named photos from different sessions remain separate.
+
+`SunsetResult` is fully managed by SunsetScore. Each successful packing run builds a temporary directory first and then replaces the previous result, so stale photos are removed while a failed copy leaves the prior result intact. Do not keep manually managed files inside it. The directory is excluded from later recursive scans.
+
+Compatible score files are reused automatically, so `--autopack` can package a previous inference result without loading the model again. Use `--force` together with `--autopack` when photos or scoring inputs changed. A cache-only independent run also reuses its newest Markdown report. The flag itself does not create JSON files in the input root; `--json` continues to write only to standard output.
 
 ## Score Files
 
