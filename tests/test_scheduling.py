@@ -31,7 +31,7 @@ class FakeGpuScorer:
         return PhotoScore(int(image.stem), image.name)
 
 
-def test_automatic_plan_uses_four_workers_on_16gb_gpu() -> None:
+def test_automatic_plan_uses_two_shared_slots_on_16gb_gpu() -> None:
     plan = resolve_inference_plan(
         FakeGpuScorer(),
         10,
@@ -39,8 +39,8 @@ def test_automatic_plan_uses_four_workers_on_16gb_gpu() -> None:
         gpu_memory_limit=None,
     )
 
-    assert plan.workers == 4
-    assert plan.memory_budget_mib == 13_985
+    assert plan.workers == 2
+    assert plan.memory_budget_mib == 8_865
     assert not plan.manually_limited
 
 
@@ -48,16 +48,16 @@ def test_manual_limits_are_combined() -> None:
     plan = resolve_inference_plan(
         FakeGpuScorer(),
         10,
-        gpu_workers=6,
+        gpu_workers=2,
         gpu_memory_limit=6,
     )
 
-    assert plan.workers == 2
+    assert plan.workers == 1
     assert plan.memory_budget_mib == 6 * 1024
     assert plan.manually_limited
 
 
-def test_unknown_gpu_memory_defaults_to_two_workers() -> None:
+def test_unknown_gpu_memory_defaults_to_one_slot() -> None:
     scorer = FakeGpuScorer()
     scorer.free_gpu_memory_mib = None
 
@@ -68,7 +68,7 @@ def test_unknown_gpu_memory_defaults_to_two_workers() -> None:
         gpu_memory_limit=None,
     )
 
-    assert plan.workers == 2
+    assert plan.workers == 1
     assert plan.memory_budget_mib is None
 
 
@@ -78,6 +78,19 @@ def test_gpu_limits_are_rejected_for_serial_scorer() -> None:
             object(),
             10,
             gpu_workers=2,
+            gpu_memory_limit=None,
+        )
+
+
+def test_explicit_worker_limit_cannot_exceed_two_server_slots() -> None:
+    scorer = FakeGpuScorer()
+    scorer.free_gpu_memory_mib = 100_000
+
+    with pytest.raises(ScoringError, match="1 到 2"):
+        resolve_inference_plan(
+            scorer,
+            20,
+            gpu_workers=8,
             gpu_memory_limit=None,
         )
 

@@ -107,6 +107,7 @@ def test_runtime_archive_is_installed_once(tmp_path, monkeypatch) -> None:
     archive = tmp_path / "runtime.zip"
     with zipfile.ZipFile(archive, "w") as output:
         output.writestr("bin/llama-mtmd-cli.exe", b"executable")
+        output.writestr("bin/llama-server.exe", b"server")
     payload = archive.read_bytes()
     artifact = ArtifactSpec(
         filename=archive.name,
@@ -134,11 +135,30 @@ def test_runtime_archive_is_installed_once(tmp_path, monkeypatch) -> None:
     assert calls == 1
 
 
+def test_runtime_archive_requires_llama_server(tmp_path, monkeypatch) -> None:
+    archive = tmp_path / "runtime.zip"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr("bin/llama-mtmd-cli.exe", b"executable")
+    payload = archive.read_bytes()
+    spec = RuntimeSpec(
+        "missing-server",
+        _artifact(payload, archive.name),
+        "llama-mtmd-cli.exe",
+    )
+    paths = RuntimePaths(tmp_path / "home")
+    paths.create()
+    monkeypatch.setattr(install, "ensure_download", lambda *args: archive)
+
+    with pytest.raises(RuntimeInstallError, match="缺少 llama-server"):
+        install._ensure_runtime(paths, spec)
+
+
 def test_runtime_installs_additional_archives(tmp_path, monkeypatch) -> None:
     main = tmp_path / "main.zip"
     dependency = tmp_path / "dependency.zip"
     with zipfile.ZipFile(main, "w") as output:
         output.writestr("bin/llama-mtmd-cli.exe", b"executable")
+        output.writestr("bin/llama-server.exe", b"server")
     with zipfile.ZipFile(dependency, "w") as output:
         output.writestr("bin/cudart.dll", b"dependency")
     main_spec = _artifact(main.read_bytes(), main.name)

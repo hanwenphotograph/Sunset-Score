@@ -10,7 +10,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .errors import ImagePreparationError
 
 
-MAX_IMAGE_EDGE = 1280
+MAX_IMAGE_EDGE = 1024
 
 
 @contextmanager

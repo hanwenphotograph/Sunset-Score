@@ -72,10 +72,11 @@ def _score_concurrently(
     workers: int,
 ) -> list[_PhotoOutcome]:
     outcomes: list[_PhotoOutcome | None] = [None] * len(images)
-    with ThreadPoolExecutor(
+    executor = ThreadPoolExecutor(
         max_workers=workers,
         thread_name_prefix="sunsetscore-gpu",
-    ) as executor:
+    )
+    try:
         futures = {}
         for index, image in enumerate(images, start=1):
             relative = image.relative_to(root)
@@ -91,6 +92,13 @@ def _score_concurrently(
             outcome = future.result()
             outcomes[futures[future]] = outcome
             _log_outcome(outcome, root, len(images))
+    except BaseException:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        executor.shutdown(wait=True)
     return [outcome for outcome in outcomes if outcome is not None]
 
 

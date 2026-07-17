@@ -35,7 +35,7 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         f"- 评分模型：`{_escape_code(result.model_version)}`",
         f"- 推理后端：`{_escape_code(result.inference_backend.upper())}`",
         f"- 推理设备：`{_escape_code(result.inference_device)}`",
-        f"- 最大评分并发：`{result.inference_workers}`",
+        f"- 推理服务槽位：`{result.inference_workers}`",
         f"- GPU 显存限制：`{_memory_limit(result.gpu_memory_limit_gib)}`",
         f"- 成功目录：`{result.successful_directory_count}`",
         f"- 失败目录：`{result.failed_directory_count}`",
@@ -44,7 +44,7 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         "",
         (
             "| 子目录 | 图片数 | 采样数 | 成功样本 | 失败样本 | "
-            "采样间隔 | 并发数 | 平均分 | 最高分 | 状态 |"
+            "采样间隔 | 推理槽位 | 平均分 | 最高分 | 状态 |"
         ),
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]

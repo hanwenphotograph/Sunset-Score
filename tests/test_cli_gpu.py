@@ -50,8 +50,8 @@ def test_gpu_limits_are_forwarded_to_api(capsys, monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "score_directory", fake_score)
 
-    assert cli.main(["photos", "--gpu-workers", "3", "--gpu-memory-limit", "8.5"]) == 0
-    assert calls[0][1]["gpu_workers"] == 3
+    assert cli.main(["photos", "--gpu-workers", "2", "--gpu-memory-limit", "8.5"]) == 0
+    assert calls[0][1]["gpu_workers"] == 2
     assert calls[0][1]["gpu_memory_limit"] == 8.5
     capsys.readouterr()
 
@@ -84,3 +84,11 @@ def test_gpu_memory_limit_has_safe_minimum(capsys) -> None:
 
     assert raised.value.code == 2
     assert "必须大于等于 3 GiB" in capsys.readouterr().err
+
+
+def test_gpu_workers_cannot_exceed_server_slot_limit(capsys) -> None:
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["photos", "--gpu-workers", "3"])
+
+    assert raised.value.code == 2
+    assert "必须小于等于 2" in capsys.readouterr().err

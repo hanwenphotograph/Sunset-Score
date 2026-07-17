@@ -10,7 +10,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 
 - Runs locally after the initial model download, without an API key or cloud service
 - Automatically uses a compatible GPU, with CPU override and automatic fallback
-- Runs multiple GPU inferences concurrently within a detected memory budget
+- Reuses one local inference service and runs up to two requests concurrently without duplicating model processes
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
@@ -110,12 +110,12 @@ Force CPU inference even when a compatible GPU is available:
 sunsetscore /path/to/photos --cpu-infer
 ```
 
-Cap GPU concurrency, the scheduling memory budget, or both:
+Cap shared GPU service slots, the scheduling memory budget, or both:
 
 ```console
 sunsetscore /path/to/photos --gpu-workers 2
 sunsetscore /path/to/photos --gpu-memory-limit 6
-sunsetscore /path/to/photos --gpu-workers 3 --gpu-memory-limit 10
+sunsetscore /path/to/photos --gpu-workers 2 --gpu-memory-limit 10
 ```
 
 Human-readable output:
@@ -158,7 +158,7 @@ At the end of the run, the CLI prints every directory conclusion and writes a re
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model, inference backend, device, maximum concurrency and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend, device, inference-slot and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
 
 ## Score Files
 
@@ -198,13 +198,13 @@ Backend priority and availability are:
 3. Vulkan on Windows or Linux when a Vulkan loader is available
 4. CPU on every supported platform
 
-Each GPU runtime is verified by listing its compute devices before it is selected. Installation or device-verification failure advances to the next candidate backend. If real GPU inference later fails, SunsetScore logs the reason and switches directly to CPU. `--cpu-infer` skips GPU detection and forces CPU execution. Models are shared between backends, while each managed runtime is cached separately.
+Each GPU runtime is verified by listing its compute devices before it is selected. Installation or device-verification failure advances to the next candidate backend. SunsetScore starts one loopback-only `llama-server`, loads the model once, and sends concurrent image requests to shared server slots. If real GPU inference later fails, the service is stopped, SunsetScore logs the reason, and a CPU service is started instead. `--cpu-infer` skips GPU detection and forces CPU execution. Models are shared between backends, while each managed runtime is cached separately.
 
-For batches containing multiple samples, SunsetScore runs GPU inference concurrently. Automatic scheduling reserves 1 GiB of currently free device memory, budgets 3 GiB per worker, and uses at most four workers. `--gpu-workers` sets an upper bound on workers. `--gpu-memory-limit` sets a scheduling budget in GiB and has a minimum value of `3`; it is an approximate concurrency budget, not a driver-enforced hard VRAM cap. The detected free-memory budget and both manual limits are combined conservatively. GPU limit options cannot be used with `--cpu-infer`.
+For batches containing multiple samples, automatic scheduling reserves 6 GiB of currently free device memory for multimodal projection, budgets 4 GiB per additional request slot, and uses at most two shared slots. Unknown device memory selects one slot. `--gpu-workers` accepts `1` or `2` and sets a slot limit. `--gpu-memory-limit` sets a scheduling budget in GiB and has a minimum value of `3`; it remains an approximation rather than a driver-enforced hard VRAM cap. If free device memory is unknown or below the 6 GiB safety margin, the visual projector runs on CPU while language-model layers may still use the GPU. Input images and dynamic vision tokens are both capped at `1024`. GPU limit options cannot be used with `--cpu-infer`.
 
 Downloads provide progress logs, temporary files, HTTP resume support, SHA-256 verification, atomic installation, and one automatic retry. Subsequent runs can operate offline, although cached model files are still checked for integrity.
 
-When SunsetScore receives a catchable termination signal, it performs an orderly shutdown and removes incomplete download, runtime-installation, normalized-image, lock, and report temporary data. Verified models and installed runtimes remain cached. An operating-system hard kill cannot run in-process cleanup.
+When SunsetScore receives a catchable termination signal, it stops the inference service, performs an orderly shutdown, and removes incomplete download, runtime-installation, normalized-image, lock, and report temporary data. Verified models and installed runtimes remain cached. An operating-system hard kill cannot run in-process cleanup.
 
 Managed files are stored in the platform-standard SunsetScore user data directory. Set `SUNSETSCORE_HOME` to place them somewhere else, including next to a portable installation:
 
@@ -235,13 +235,13 @@ These bands describe the requested rubric, but a small generative vision-languag
 
 ## Performance
 
-On the development machine (`Ryzen 7 9700X` and `RTX 5070 Ti 16 GB`), eight real samples took 16.1 seconds end to end with one CUDA worker and 7.9 seconds with the automatically selected four workers, a 2.04x throughput improvement. A 6 GiB limit selected two workers and took 10.4 seconds. Raising concurrency to six or eight workers made throughput substantially worse, which is why automatic scheduling stops at four. The first CUDA inference after installation took 38.69 seconds because the driver compiled and cached kernels; later single-image processes took 1.82-1.96 seconds.
+The persistent service removes per-image model loading and shares model weights, the visual projector, and the CUDA context across all requests. A 16 GiB GPU normally selects two slots, while `--gpu-workers 1` provides the most conservative mode. Actual throughput depends on image complexity, backend, and whether the visual projector can remain on the GPU.
 
 An approximate runtime is:
 
 ```text
 samples ≈ ceil(number of images / sampling interval)
-runtime ≈ ceil(samples / workers) × concurrent-batch time
+runtime ≈ ceil(samples / slots) × concurrent-batch time
 ```
 
 For example, a directory with about 1,800 images and the default interval of `10` produces about 180 inferences and took roughly 36-39 minutes on the development machine with CPU inference. The first run also downloads about 1.55 GB of model data plus the selected runtime.
@@ -268,7 +268,7 @@ cpu_result = score_directory("D:/Photos", cpu_infer=True)
 limited = score_directory(
     "D:/Photos",
     gpu_workers=2,
-    gpu_memory_limit=6,
+    gpu_memory_limit=10,
 )
 refreshed = score_directory("D:/Photos", force=True)
 ```

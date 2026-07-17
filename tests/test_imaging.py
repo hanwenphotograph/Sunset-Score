@@ -7,14 +7,14 @@ from sunsetscore.errors import ImagePreparationError
 from sunsetscore.imaging import prepared_image
 
 
-def test_prepared_image_is_rgb_and_limited_to_1280_pixels(tmp_path) -> None:
+def test_prepared_image_is_rgb_and_limited_to_1024_pixels(tmp_path) -> None:
     source = tmp_path / "large.jpg"
     Image.new("RGBA", (2000, 1000), (255, 100, 20, 128)).convert("RGB").save(source)
 
     with prepared_image(source) as prepared:
         with Image.open(prepared) as image:
             assert image.mode == "RGB"
-            assert image.size == (1280, 640)
+            assert image.size == (1024, 512)
 
     assert not prepared.exists()
 

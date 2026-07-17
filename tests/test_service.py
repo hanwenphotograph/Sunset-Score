@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from sunsetscore import service
 from sunsetscore.errors import InferenceError, ScoringError
 from sunsetscore.log import configure_logging
 from sunsetscore.results import PhotoScore
@@ -122,3 +123,26 @@ def test_empty_directory_fails(tmp_path) -> None:
             interval=None,
             scorer=FakeScorer({}),
         )
+
+
+def test_service_closes_owned_local_scorer(tmp_path, monkeypatch) -> None:
+    _photos(tmp_path, ["photo.jpg"])
+    instances = []
+
+    class ManagedScorer(FakeScorer):
+        model_version = "managed-v1"
+
+        def __init__(self, *, cpu_infer):
+            del cpu_infer
+            super().__init__({"photo.jpg": 60})
+            self.closed = False
+            instances.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(service, "LocalVisionScorer", ManagedScorer)
+
+    run_directory_score(tmp_path, recursive=False, interval=1)
+
+    assert instances[0].closed

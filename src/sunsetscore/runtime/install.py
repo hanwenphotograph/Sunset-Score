@@ -30,6 +30,7 @@ class RuntimeEnvironment:
     model: Path
     projector: Path
     version: str
+    server_executable: Path | None = None
     backend: str = "cpu"
     device: str = "CPU"
     total_gpu_memory_mib: int | None = None
@@ -60,6 +61,7 @@ def ensure_runtime_environment(*, force_cpu: bool = False) -> RuntimeEnvironment
         model=model,
         projector=projector,
         version=f"{MODEL_VERSION} / llama.cpp {LLAMA_RELEASE}",
+        server_executable=_server_executable(executable),
         backend=candidate.spec.backend,
         device=device.label,
         total_gpu_memory_mib=device.total_memory_mib,
@@ -114,6 +116,10 @@ def _ensure_runtime(paths: RuntimePaths, spec: RuntimeSpec) -> Path:
             extract_archive(archive, temporary)
         executable = find_executable(temporary, spec.executable_name)
         make_executable(executable)
+        server_executable = _server_executable(executable)
+        if not server_executable.is_file():
+            raise RuntimeInstallError("推理运行时压缩包中缺少 llama-server")
+        make_executable(server_executable)
         relative = executable.relative_to(temporary).as_posix()
         _write_marker(temporary, spec, relative)
         _remove_managed_target(target, paths.runtimes)
@@ -147,11 +153,20 @@ def _installed_executable(target: Path, spec: RuntimeSpec) -> Path | None:
         if relative.is_absolute() or ".." in relative.parts:
             return None
         executable = target / relative
-        if executable.name == spec.executable_name and executable.is_file():
+        if (
+            executable.name == spec.executable_name
+            and executable.is_file()
+            and _server_executable(executable).is_file()
+        ):
             return executable
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         return None
     return None
+
+
+def _server_executable(executable: Path) -> Path:
+    name = "llama-server.exe" if executable.suffix.casefold() == ".exe" else "llama-server"
+    return executable.with_name(name)
 
 
 def _write_marker(root: Path, spec: RuntimeSpec, executable: str) -> None:

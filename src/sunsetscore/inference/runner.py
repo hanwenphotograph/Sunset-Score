@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
+import atexit
 from pathlib import Path
-import subprocess
-from threading import Lock
+from threading import Event, Lock
+from types import TracebackType
 
 from ..errors import InferenceError
 from ..imaging import prepared_image
@@ -11,10 +11,8 @@ from ..log import logger
 from ..results import PhotoScore
 from ..runtime import RuntimeEnvironment, ensure_runtime_environment
 from .parser import parse_model_response
-from .prompt import RESPONSE_SCHEMA, RETRY_PROMPT, SCORING_PROMPT
-
-
-INFERENCE_TIMEOUT_SECONDS = 600
+from .prompt import RETRY_PROMPT, SCORING_PROMPT
+from .server import LlamaServer
 
 
 class LocalVisionScorer:
@@ -27,8 +25,13 @@ class LocalVisionScorer:
         self._environment = environment or ensure_runtime_environment(
             force_cpu=cpu_infer
         )
+        self._workers = 1
+        self._server: LlamaServer | None = None
+        self._server_lock = Lock()
+        self._closed = Event()
         self._fallback_attempted = False
         self._fallback_lock = Lock()
+        atexit.register(self.close)
 
     @property
     def model_version(self) -> str:
@@ -50,6 +53,19 @@ class LocalVisionScorer:
     def free_gpu_memory_mib(self) -> int | None:
         return self._environment.free_gpu_memory_mib
 
+    def configure_workers(self, workers: int) -> None:
+        if self._closed.is_set():
+            raise RuntimeError("scorer is closed")
+        if workers < 1:
+            raise ValueError("workers must be at least 1")
+        with self._server_lock:
+            if self._workers == workers:
+                return
+            server, self._server = self._server, None
+            self._workers = workers
+        if server is not None:
+            server.close()
+
     def score(self, image: Path) -> PhotoScore:
         with prepared_image(image) as normalized:
             first_output = self._invoke(normalized, SCORING_PROMPT)
@@ -59,93 +75,59 @@ class LocalVisionScorer:
                 second_output = self._invoke(normalized, RETRY_PROMPT)
                 return parse_model_response(second_output)
 
+    def close(self) -> None:
+        self._closed.set()
+        with self._server_lock:
+            server, self._server = self._server, None
+        if server is not None:
+            server.close()
+
+    def __enter__(self) -> LocalVisionScorer:
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exception_type, exception, traceback
+        self.close()
+
     def _invoke(self, image: Path, prompt: str) -> str:
+        if self._closed.is_set():
+            raise InferenceError("本地评分器已经关闭")
         active_environment = self._environment
-        command = self._build_command(active_environment, image, prompt)
-        environment = os.environ.copy()
-        environment["NO_COLOR"] = "1"
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=environment,
-                timeout=INFERENCE_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            return self._server_for().complete(image, prompt)
+        except InferenceError as exc:
+            if self._closed.is_set():
+                raise
             if self._fallback_to_cpu(active_environment, str(exc)):
                 return self._invoke(image, prompt)
-            raise InferenceError(f"无法执行本地模型: {exc}") from exc
+            raise
 
-        if result.returncode != 0:
-            detail = _last_nonempty_line(result.stderr) or _last_nonempty_line(
-                result.stdout
-            )
-            if self._fallback_to_cpu(
-                active_environment,
-                detail or f"退出码 {result.returncode}",
-            ):
-                return self._invoke(image, prompt)
-            suffix = f"：{detail}" if detail else ""
-            raise InferenceError(f"本地模型退出码为 {result.returncode}{suffix}")
-        return result.stdout
-
-    def _build_command(
-        self,
-        environment: RuntimeEnvironment,
-        image: Path,
-        prompt: str,
-    ) -> list[str]:
-        command = [
-            str(environment.executable),
-            "-m",
-            str(environment.model),
-            "--mmproj",
-            str(environment.projector),
-            "--image",
-            str(image),
-            "-p",
-            prompt,
-            "--json-schema",
-            RESPONSE_SCHEMA,
-            "--temp",
-            "0",
-            "--top-k",
-            "1",
-            "--top-p",
-            "1",
-            "--seed",
-            "0",
-            "--ctx-size",
-            "4096",
-            "--image-max-tokens",
-            "1280",
-            "-n",
-            "160",
-            "--no-warmup",
-            "--log-verbosity",
-            "0",
-            "--log-colors",
-            "off",
-            "--no-log-timestamps",
-        ]
-        if environment.backend == "cpu":
-            command.extend(["--device", "none", "--gpu-layers", "0"])
-        else:
-            command.extend(["--gpu-layers", "auto", "--fit", "on"])
-        return command
+    def _server_for(self) -> LlamaServer:
+        with self._server_lock:
+            if self._closed.is_set():
+                raise InferenceError("本地评分器已经关闭")
+            environment = self._environment
+            if self._server is not None:
+                return self._server
+            slots = self._workers if environment.backend != "cpu" else 1
+            self._server = LlamaServer(environment, slots=slots)
+            return self._server
 
     def _fallback_to_cpu(
         self,
         failed_environment: RuntimeEnvironment,
         reason: str,
     ) -> bool:
-        if failed_environment.backend == "cpu":
+        if failed_environment.backend == "cpu" or self._closed.is_set():
             return False
         with self._fallback_lock:
+            if self._closed.is_set():
+                return False
             if self._environment.backend == "cpu":
                 return True
             if self._fallback_attempted:
@@ -156,15 +138,15 @@ class LocalVisionScorer:
                 failed_environment.backend.upper(),
                 reason,
             )
-            self._environment = ensure_runtime_environment(force_cpu=True)
+            replacement = ensure_runtime_environment(force_cpu=True)
+            with self._server_lock:
+                server, self._server = self._server, None
+                self._environment = replacement
+            if server is not None:
+                server.close()
             logger.info(
                 "已切换推理后端：%s，设备：%s",
-                self._environment.backend.upper(),
-                self._environment.device,
+                replacement.backend.upper(),
+                replacement.device,
             )
             return True
-
-
-def _last_nonempty_line(value: str) -> str:
-    lines = [line.strip() for line in value.splitlines() if line.strip()]
-    return lines[-1][:300] if lines else ""

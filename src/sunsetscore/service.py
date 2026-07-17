@@ -97,47 +97,54 @@ def run_directory_analysis(
         "采样间隔：%d，递归扫描：%s", resolved_interval, "是" if recursive else "否"
     )
 
+    owned_scorer = scorer is None
     active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
-    if log_model:
-        logger.info("评分模型：%s", active_scorer.model_version)
+    try:
+        if log_model:
+            logger.info("评分模型：%s", active_scorer.model_version)
+            backend, device = _inference_metadata(active_scorer)
+            logger.info("推理后端：%s，设备：%s", backend.upper(), device)
+        plan = resolve_inference_plan(
+            active_scorer,
+            len(samples),
+            gpu_workers=gpu_workers,
+            gpu_memory_limit=gpu_memory_limit,
+        )
+        _configure_workers(active_scorer, plan.workers)
+        log_inference_plan(plan)
+        batch = score_image_batch(samples, root, active_scorer, workers=plan.workers)
+        scores = list(batch.scores)
+        failed = batch.failed_count
+
+        if not scores:
+            raise ScoringError("所有采样照片均评分失败，无法生成运行结果")
+
+        result = DirectoryScoreResult(
+            directory=label,
+            image_count=len(images),
+            sampled_count=len(samples),
+            successful_count=len(scores),
+            failed_count=failed,
+            interval=resolved_interval,
+            inference_workers=plan.workers,
+            average_score=_rounded_average(scores),
+            max_score=max(scores),
+        )
+        logger.info("评分完成：成功 %d 张，失败 %d 张", len(scores), failed)
         backend, device = _inference_metadata(active_scorer)
-        logger.info("推理后端：%s，设备：%s", backend.upper(), device)
-    plan = resolve_inference_plan(
-        active_scorer,
-        len(samples),
-        gpu_workers=gpu_workers,
-        gpu_memory_limit=gpu_memory_limit,
-    )
-    log_inference_plan(plan)
-    batch = score_image_batch(samples, root, active_scorer, workers=plan.workers)
-    scores = list(batch.scores)
-    failed = batch.failed_count
-
-    if not scores:
-        raise ScoringError("所有采样照片均评分失败，无法生成运行结果")
-
-    result = DirectoryScoreResult(
-        directory=label,
-        image_count=len(images),
-        sampled_count=len(samples),
-        successful_count=len(scores),
-        failed_count=failed,
-        interval=resolved_interval,
-        inference_workers=plan.workers,
-        average_score=_rounded_average(scores),
-        max_score=max(scores),
-    )
-    logger.info("评分完成：成功 %d 张，失败 %d 张", len(scores), failed)
-    backend, device = _inference_metadata(active_scorer)
-    write_score_file(
-        root,
-        result,
-        model_version=active_scorer.model_version,
-        inference_backend=backend,
-        inference_device=device,
-        recursive=recursive,
-    )
-    return result
+        write_score_file(
+            root,
+            result,
+            model_version=active_scorer.model_version,
+            inference_backend=backend,
+            inference_device=device,
+            recursive=recursive,
+        )
+        return result
+    finally:
+        if owned_scorer:
+            assert isinstance(active_scorer, LocalVisionScorer)
+            active_scorer.close()
 
 
 def _rounded_average(scores: list[int]) -> float:
@@ -149,3 +156,9 @@ def _inference_metadata(scorer: ImageScorer) -> tuple[str, str]:
     backend = getattr(scorer, "inference_backend", "unknown")
     device = getattr(scorer, "inference_device", "unknown")
     return str(backend), str(device)
+
+
+def _configure_workers(scorer: ImageScorer, workers: int) -> None:
+    configure = getattr(scorer, "configure_workers", None)
+    if callable(configure):
+        configure(workers)

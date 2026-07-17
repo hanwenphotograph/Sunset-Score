@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from . import __version__
+from .inference.settings import MAX_GPU_SERVER_SLOTS
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):
@@ -33,6 +34,13 @@ def positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("必须是整数") from exc
     if number < 1:
         raise argparse.ArgumentTypeError("必须大于等于 1")
+    return number
+
+
+def gpu_workers(value: str) -> int:
+    number = positive_int(value)
+    if number > MAX_GPU_SERVER_SLOTS:
+        raise argparse.ArgumentTypeError(f"必须小于等于 {MAX_GPU_SERVER_SLOTS}")
     return number
 
 
@@ -91,8 +99,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--gpu-workers",
-        type=positive_int,
-        help="限制同时运行的 GPU 推理进程数，默认自动选择。",
+        type=gpu_workers,
+        help="限制常驻 GPU 推理服务的并发槽位数，最大为 2。",
     )
     parser.add_argument(
         "--gpu-memory-limit",

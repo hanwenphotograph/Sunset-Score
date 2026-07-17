@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import signal
+from pathlib import Path
+from threading import Barrier, Event
+from time import perf_counter
 
 import pytest
 
 from sunsetscore import cli
+from sunsetscore.inference.batch import score_image_batch
+from sunsetscore.results import PhotoScore
 from sunsetscore.termination import TerminationRequested, handle_termination_signals
 
 
@@ -31,3 +36,26 @@ def test_cli_returns_signal_exit_code(capsys, monkeypatch, tmp_path) -> None:
 
     assert cli.main([str(tmp_path)]) == 128 + signal.SIGTERM
     assert "SIGTERM" in capsys.readouterr().err
+
+
+def test_parallel_batch_does_not_wait_for_workers_after_termination(tmp_path) -> None:
+    started = Barrier(2)
+    release = Event()
+
+    class InterruptingScorer:
+        def score(self, image: Path) -> PhotoScore:
+            started.wait(timeout=2)
+            if image.name == "interrupt.jpg":
+                raise TerminationRequested(signal.SIGTERM)
+            release.wait(timeout=2)
+            return PhotoScore(1, "unused")
+
+    images = [tmp_path / "interrupt.jpg", tmp_path / "blocked.jpg"]
+    before = perf_counter()
+    try:
+        with pytest.raises(TerminationRequested):
+            score_image_batch(images, tmp_path, InterruptingScorer(), workers=2)
+    finally:
+        release.set()
+
+    assert perf_counter() - before < 1

@@ -34,47 +34,52 @@ def run_independent_directory_scores(
     cached_scores = {} if force else _read_cached_scores(directories, root)
     pending_count = len(directories) - len(cached_scores)
     active_scorer = scorer
+    owned_scorer = pending_count > 0 and active_scorer is None
     if pending_count and active_scorer is None:
         active_scorer = LocalVisionScorer(cpu_infer=cpu_infer)
-
-    logger.info(
-        "发现 %d 个可独立分析的子目录，其中 %d 个将执行评分",
-        len(directories),
-        pending_count,
-    )
-    metadata_scorer = active_scorer if pending_count else None
-    model_version, backend, device = _metadata(metadata_scorer, cached_scores)
-    logger.info("评分模型：%s", model_version)
-    logger.info("推理后端：%s，设备：%s", backend.upper(), device)
-    if pending_count:
-        assert active_scorer is not None
-        resolve_inference_plan(
-            active_scorer,
-            1,
+    try:
+        logger.info(
+            "发现 %d 个可独立分析的子目录，其中 %d 个将执行评分",
+            len(directories),
+            pending_count,
+        )
+        metadata_scorer = active_scorer if pending_count else None
+        model_version, backend, device = _metadata(metadata_scorer, cached_scores)
+        logger.info("评分模型：%s", model_version)
+        logger.info("推理后端：%s，设备：%s", backend.upper(), device)
+        if pending_count:
+            assert active_scorer is not None
+            resolve_inference_plan(
+                active_scorer,
+                1,
+                gpu_workers=gpu_workers,
+                gpu_memory_limit=gpu_memory_limit,
+            )
+        results = _score_directories(
+            directories,
+            root,
+            interval=interval,
+            cpu_infer=cpu_infer,
             gpu_workers=gpu_workers,
             gpu_memory_limit=gpu_memory_limit,
+            scorer=active_scorer,
+            cached_scores=cached_scores,
         )
-    results = _score_directories(
-        directories,
-        root,
-        interval=interval,
-        cpu_infer=cpu_infer,
-        gpu_workers=gpu_workers,
-        gpu_memory_limit=gpu_memory_limit,
-        scorer=active_scorer,
-        cached_scores=cached_scores,
-    )
-    if pending_count:
-        model_version, backend, device = _metadata(active_scorer, cached_scores)
-    return _write_result(
-        root,
-        results,
-        model_version=model_version,
-        inference_backend=backend,
-        inference_device=device,
-        gpu_memory_limit=gpu_memory_limit,
-        generated_at=generated_at,
-    )
+        if pending_count:
+            model_version, backend, device = _metadata(active_scorer, cached_scores)
+        return _write_result(
+            root,
+            results,
+            model_version=model_version,
+            inference_backend=backend,
+            inference_device=device,
+            gpu_memory_limit=gpu_memory_limit,
+            generated_at=generated_at,
+        )
+    finally:
+        if owned_scorer:
+            assert isinstance(active_scorer, LocalVisionScorer)
+            active_scorer.close()
 
 
 def _read_cached_scores(

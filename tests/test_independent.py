@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from sunsetscore import independent
 from sunsetscore.errors import InferenceError, ScoringError
 from sunsetscore.log import configure_logging
 from sunsetscore.results import PhotoScore
@@ -83,7 +84,7 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert "# SunsetScore 独立目录分析报告" in report
     assert "- 推理后端：`CUDA`" in report
     assert "- 推理设备：`CUDA0: Fake GPU`" in report
-    assert "- 最大评分并发：`1`" in report
+    assert "- 推理服务槽位：`1`" in report
     assert "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 50.00 | 80 | 成功 |" in report
 
 
@@ -142,3 +143,24 @@ def test_independent_analysis_requires_a_valid_descendant_directory(tmp_path) ->
             interval=1,
             scorer=FakeScorer({"root.jpg": 20}),
         )
+
+
+def test_independent_analysis_closes_shared_owned_scorer(tmp_path, monkeypatch) -> None:
+    _photo(tmp_path / "child" / "photo.jpg")
+    instances = []
+
+    class ManagedScorer(FakeScorer):
+        def __init__(self, *, cpu_infer):
+            del cpu_infer
+            super().__init__({"photo.jpg": 50})
+            self.closed = False
+            instances.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(independent, "LocalVisionScorer", ManagedScorer)
+
+    run_independent_directory_scores(tmp_path, interval=1)
+
+    assert instances[0].closed
