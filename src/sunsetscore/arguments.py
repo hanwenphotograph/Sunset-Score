@@ -5,8 +5,8 @@ import math
 from pathlib import Path
 import sys
 
-from . import __version__
 from .inference.settings import MAX_GPU_SERVER_SLOTS
+from .version import __version__
 
 
 class ChineseArgumentParser(argparse.ArgumentParser):

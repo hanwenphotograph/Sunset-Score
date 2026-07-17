@@ -8,7 +8,7 @@ from typing import Protocol, Sequence
 
 from ..errors import PhotoProcessingError
 from ..log import logger
-from ..results import PhotoScore
+from ..results import PhotoScore, SampleScore
 
 
 class PhotoScorer(Protocol):
@@ -17,8 +17,12 @@ class PhotoScorer(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class BatchScoreResult:
-    scores: tuple[int, ...]
+    samples: tuple[SampleScore, ...]
     failed_count: int
+
+    @property
+    def scores(self) -> tuple[int, ...]:
+        return tuple(sample.score for sample in self.samples)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,11 +45,18 @@ def score_image_batch(
         outcomes = _score_serially(images, root, scorer)
     else:
         outcomes = _score_concurrently(images, root, scorer, workers)
-    scores = tuple(
-        outcome.score.score for outcome in outcomes if outcome.score is not None
+    samples = tuple(
+        SampleScore(
+            sample_index=outcome.index,
+            photo=outcome.image.relative_to(root).as_posix(),
+            score=outcome.score.score,
+            reason=outcome.score.reason,
+        )
+        for outcome in outcomes
+        if outcome.score is not None
     )
     return BatchScoreResult(
-        scores=scores,
+        samples=samples,
         failed_count=sum(outcome.error is not None for outcome in outcomes),
     )
 

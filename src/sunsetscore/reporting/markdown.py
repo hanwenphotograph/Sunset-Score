@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..errors import ReportError
 from ..log import logger
-from ..results import DirectoryScoreResult, IndependentScoreResult
+from ..results import DirectoryScoreResult, IndependentScoreResult, SunsetRange
 
 
 def write_markdown_report(
@@ -44,9 +44,9 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
         "",
         (
             "| 子目录 | 图片数 | 采样数 | 成功样本 | 失败样本 | "
-            "采样间隔 | 推理槽位 | 平均分 | 最高分 | 状态 |"
+            "采样间隔 | 推理槽位 | 平均分 | 最高分 | 晚霞 | 晚霞区间 | 状态 |"
         ),
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|:---:|---|---|",
     ]
     lines.extend(_table_row(item) for item in result.directories)
 
@@ -72,6 +72,8 @@ def build_markdown_report(result: IndependentScoreResult) -> str:
 def _table_row(item: DirectoryScoreResult) -> str:
     average = f"{item.average_score:.2f}" if item.average_score is not None else "-"
     maximum = str(item.max_score) if item.max_score is not None else "-"
+    has_sunset = _sunset_label(item.has_sunset)
+    sunset_ranges = _format_ranges(item.sunset_ranges)
     interval = str(item.interval) if item.interval is not None else "-"
     status = "成功" if item.succeeded else f"失败：{item.error}"
     values = (
@@ -84,6 +86,8 @@ def _table_row(item: DirectoryScoreResult) -> str:
         str(item.inference_workers),
         average,
         maximum,
+        has_sunset,
+        sunset_ranges,
         status,
     )
     return "| " + " | ".join(_escape_cell(value) for value in values) + " |"
@@ -111,6 +115,23 @@ def _escape_code(value: str) -> str:
 
 def _memory_limit(value: float | None) -> str:
     return f"{value:g} GiB" if value is not None else "自动"
+
+
+def _sunset_label(value: bool | None) -> str:
+    if value is None:
+        return "-"
+    return "是" if value else "否"
+
+
+def _format_ranges(ranges: tuple[SunsetRange, ...]) -> str:
+    if not ranges:
+        return "-"
+    return "<br>".join(
+        item.start_photo
+        if item.start_photo == item.end_photo
+        else f"{item.start_photo} 至 {item.end_photo}"
+        for item in ranges
+    )
 
 
 def _remove_temporary_report(path: Path) -> None:

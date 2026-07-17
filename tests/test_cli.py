@@ -11,6 +11,7 @@ from sunsetscore.results import (
     DirectoryScoreResult,
     IndependentScoreResult,
     ScoreResult,
+    SunsetRange,
 )
 
 
@@ -42,12 +43,24 @@ def test_json_mode_prints_only_conclusion(capsys, monkeypatch, tmp_path) -> None
     monkeypatch.setattr(
         cli,
         "score_directory",
-        lambda *args, **kwargs: ScoreResult(average_score=62.5, max_score=91),
+        lambda *args, **kwargs: ScoreResult(
+            average_score=62.5,
+            max_score=91,
+            has_sunset=True,
+            sunset_ranges=(SunsetRange("one.jpg", "three.jpg"),),
+        ),
     )
 
     assert cli.main([str(tmp_path), "--json"]) == 0
     output = capsys.readouterr()
-    assert json.loads(output.out) == {"average_score": 62.5, "max_score": 91}
+    assert json.loads(output.out) == {
+        "average_score": 62.5,
+        "max_score": 91,
+        "has_sunset": True,
+        "sunset_ranges": [
+            {"start_photo": "one.jpg", "end_photo": "three.jpg"}
+        ],
+    }
     assert output.err == ""
 
 
@@ -59,7 +72,12 @@ def test_text_mode_formats_average_to_two_places(capsys, monkeypatch, tmp_path) 
     )
 
     assert cli.main([str(tmp_path)]) == 0
-    assert capsys.readouterr().out == "平均分: 7.00\n最高分: 7\n"
+    assert capsys.readouterr().out == (
+        "平均分: 7.00\n"
+        "最高分: 7\n"
+        "检测到晚霞: 否\n"
+        "晚霞区间: -\n"
+    )
 
 
 def test_expected_error_is_logged_to_stderr(capsys, monkeypatch, tmp_path) -> None:
@@ -114,6 +132,7 @@ def test_independent_alias_prints_directories_and_report(capsys, monkeypatch) ->
     output = capsys.readouterr()
     assert calls == [(Path("photos"), 5, False, None, None, False)]
     assert "day-1: 平均分 62.50，最高分 91" in output.out
+    assert "晚霞 是，区间 first.jpg 至 third.jpg" in output.out
     assert "分析报告: C:/photos/report.md" in output.out
 
 
@@ -149,6 +168,8 @@ def _independent_result(*, failed: bool = False) -> IndependentScoreResult:
             interval=10,
             average_score=62.5,
             max_score=91,
+            has_sunset=True,
+            sunset_ranges=(SunsetRange("first.jpg", "third.jpg"),),
         )
     ]
     if failed:

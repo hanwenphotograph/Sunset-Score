@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目录中采样照片，使用本地视觉语言模型判断每张采样图片的晚霞视觉特征，最后输出平均分和最高分。
+SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目录中采样照片，使用本地视觉语言模型判断每张采样图片的晚霞视觉特征，最后输出是否检测到晚霞及其照片区间。
 
 评分是模型生成的置信指数，不是经过统计校准的真实概率。程序只判断可见画面，不使用 EXIF 时间或拍摄地点，因此视觉上相似的朝霞也可能获得高分。
 
@@ -19,7 +19,7 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 - 打印进度、逐张分数、判分理由和耗时
 - 日志写入标准错误，汇总结论写入标准输出
 - 支持面向用户的文本输出和面向程序的 JSON 输出
-- 提供只返回平均分和最高分的 Python API
+- 提供返回布尔判定和照片区间的 Python API
 - 单张图片不可读时跳过，其他样本仍可继续评分
 
 ## 运行要求
@@ -123,12 +123,14 @@ sunsetscore /path/to/photos --gpu-workers 2 --gpu-memory-limit 10
 ```text
 平均分: 68.40
 最高分: 93
+检测到晚霞: 是
+晚霞区间: photo101.jpg 至 photo131.jpg
 ```
 
 JSON 输出：
 
 ```json
-{"average_score":68.4,"max_score":93}
+{"average_score":68.4,"max_score":93,"has_sunset":true,"sunset_ranges":[{"start_photo":"photo101.jpg","end_photo":"photo131.jpg"}]}
 ```
 
 运行日志始终写入标准错误，最终文本或 JSON 结论写入标准输出，因此外部调用方无需解析日志即可捕获结果。
@@ -158,7 +160,7 @@ SunsetScore 按大小写不敏感的自然顺序排列受支持图片，例如 `
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-报告包含模型、推理后端、设备、推理槽位与显存限制元数据，以及图片与采样数量、平均分、最高分、状态和失败详情。已有报告不会被覆盖。已缓存的目录结果会直接纳入报告，不会再次执行推理。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
+报告包含模型、推理后端、设备、推理槽位与显存限制元数据，以及图片与采样数量、布尔判定、晚霞区间、平均分、最高分、状态和失败详情。已有报告不会被覆盖。已缓存的目录结果会直接纳入报告，不会再次执行推理。只要存在失败目录，报告仍会生成，但进程会返回非零状态以表示结果不完整。配合 `--json` 时，标准输出包含完整目录结果数组和报告路径。
 
 ## 评分文件
 
@@ -170,7 +172,7 @@ sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 
 普通或递归的单目录评分会在输入目录中写入该文件。独立目录模式会在每个成功评分的后代目录中分别写入一个文件，评分失败的目录不会生成评分文件。
 
-后续运行的递归范围相同时，SunsetScore 会读取该文件，并跳过模型初始化和推理。使用 `-f` / `--force` 可以重新评分并原子覆盖已有文件。照片、采样配置、命令行间隔或模型发生变化时，已有评分不会自动失效；需要让这些变化影响结果时，请使用 `--force`。无效或不受支持的评分文件会被忽略，并在成功评分后替换。
+后续运行的递归范围相同时，SunsetScore 会读取该文件，并跳过模型初始化和推理。缓存会记录 SunsetScore 应用版本、有序采样位置、相对照片路径、分数和理由。来自其他应用版本的缓存会被忽略，并在成功评分后原子替换。使用 `-f` / `--force` 可以刷新同版本缓存。照片、采样配置、命令行间隔或模型发生变化时，同版本缓存不会因此自动失效；需要让这些变化影响结果时，请使用 `--force`。无效或不受支持的评分文件也会被忽略，并在成功评分后替换。
 
 ## 本地配置
 
@@ -231,7 +233,13 @@ sunsetscore ~/Pictures
 - `75-94`：明显而强烈的晚霞色彩，或云层受到霞光照亮
 - `95-100`：大面积、强烈且毫无歧义的晚霞
 
-这些区间描述的是要求模型遵循的评分准则，但小型生成式视觉语言模型不一定始终严格遵守每个数字边界。建议把分数视为粗粒度排序信号，并在用于自动决策前使用自己的照片验证阈值。对于长时间序列，最高分通常更适合判断其中是否出现过晚霞，平均分则容易被大量普通画面稀释。
+这些区间描述的是要求模型遵循的评分准则，但小型生成式视觉语言模型不一定始终严格遵守每个数字边界。建议把分数视为粗粒度信号，并在用于自动决策前使用自己的照片验证判定规则。
+
+## 晚霞判定
+
+分数大于等于 `50` 的采样照片属于高分照片。采样位置不少于三个时，只要任意连续三个位置中至少存在两张高分照片，SunsetScore 就返回 `has_sunset = true`。该规则能够排除孤立高分，同时不会让长序列中短暂出现的晚霞被全片平均分稀释。采样位置不足三个时，任意一张高分照片都会产生肯定结果。
+
+只有参与有效窗口的高分照片才会进入 `sunset_ranges`。相邻的有效采样位置合并成一个包含端点的区间，低分或评分失败的位置会拆分区间。每个端点都是相对于输入目录的照片路径；在非递归和独立目录模式下，它就是照片名。平均分和最高分继续作为兼容与诊断字段提供，但不参与布尔判定。
 
 ## 性能
 
@@ -254,6 +262,9 @@ Python 调用方可以直接取得汇总结论：
 from sunsetscore import score_directories_independently, score_directory
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
+print(result.has_sunset)
+for sunset_range in result.sunset_ranges:
+    print(sunset_range.start_photo, sunset_range.end_photo)
 print(result.average_score)
 print(result.max_score)
 
@@ -262,7 +273,7 @@ print(batch.report_path)
 print(batch.inference_backend, batch.inference_device)
 print(batch.inference_workers, batch.gpu_memory_limit_gib)
 for directory in batch.directories:
-    print(directory.directory, directory.average_score, directory.max_score)
+    print(directory.directory, directory.has_sunset, directory.sunset_ranges)
 
 cpu_result = score_directory("D:/Photos", cpu_infer=True)
 limited = score_directory(
@@ -273,7 +284,7 @@ limited = score_directory(
 refreshed = score_directory("D:/Photos", force=True)
 ```
 
-两个公开评分函数都默认复用评分文件，并可通过 `force=True` 刷新结果。`ScoreResult` 只公开 `average_score` 和 `max_score`。单张评分、模型理由、成功数量和失败数量会写入运行日志。
+两个公开评分函数都默认复用兼容的评分文件，并可通过 `force=True` 刷新结果。`ScoreResult` 公开 `has_sunset`、`sunset_ranges`、`average_score` 和 `max_score`。有序单张评分与模型理由会保存在带版本的评分文件中，并写入运行日志。
 
 损坏或无法读取的采样图片会被记录并跳过，不会自动选择下一张补位。只要至少一张样本评分成功，运行就会生成结论。没有匹配图片或所有样本均失败时，程序返回非零退出码且不输出伪造分数。
 

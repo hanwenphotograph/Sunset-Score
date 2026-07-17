@@ -17,7 +17,7 @@ def score_directory(
     gpu_memory_limit: float | None = None,
     force: bool = False,
 ) -> ScoreResult:
-    """Score a directory, reusing its score file unless forced."""
+    """Detect sunset-glow ranges, reusing its score file unless forced."""
 
     return run_directory_score(
         Path(directory),

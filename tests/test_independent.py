@@ -85,7 +85,10 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert "- 推理后端：`CUDA`" in report
     assert "- 推理设备：`CUDA0: Fake GPU`" in report
     assert "- 推理服务槽位：`1`" in report
-    assert "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 50.00 | 80 | 成功 |" in report
+    assert (
+        "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 50.00 | 80 | 是 | third.jpg | 成功 |"
+        in report
+    )
 
 
 def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -> None:

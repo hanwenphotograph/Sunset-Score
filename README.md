@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-SunsetScore is a cross-platform Python CLI that samples photos from a directory, scores each sampled image for visible sunset-glow characteristics with a local vision-language model, and reports the average and maximum scores.
+SunsetScore is a cross-platform Python CLI that samples photos from a directory, scores each sampled image for visible sunset-glow characteristics with a local vision-language model, and reports whether sunset glow was detected and where it occurs.
 
 The score is a model-generated confidence index, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so a visually similar sunrise may also receive a high score.
 
@@ -19,7 +19,7 @@ The score is a model-generated confidence index, not a statistically calibrated 
 - Prints progress, per-image scores, reasons, and timing information
 - Keeps logs on standard error and aggregate results on standard output
 - Provides human-readable and JSON CLI output
-- Exposes a small Python API that returns the average and maximum scores
+- Exposes a small Python API that returns a Boolean detection and photo ranges
 - Skips individual unreadable images while preserving the rest of the run
 
 ## Requirements
@@ -123,12 +123,14 @@ Human-readable output:
 ```text
 平均分: 68.40
 最高分: 93
+检测到晚霞: 是
+晚霞区间: photo101.jpg 至 photo131.jpg
 ```
 
 JSON output:
 
 ```json
-{"average_score":68.4,"max_score":93}
+{"average_score":68.4,"max_score":93,"has_sunset":true,"sunset_ranges":[{"start_photo":"photo101.jpg","end_photo":"photo131.jpg"}]}
 ```
 
 Runtime logs are always written to standard error. The final text or JSON result is written to standard output, so external callers can capture it without parsing logs.
@@ -158,7 +160,7 @@ At the end of the run, the CLI prints every directory conclusion and writes a re
 sunsetscore-analysis-YYYYMMDD-HHMMSS.md
 ```
 
-The report contains model, inference backend, device, inference-slot and memory-limit metadata, image and sample counts, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
+The report contains model, inference backend, device, inference-slot and memory-limit metadata, image and sample counts, the Boolean detection, sunset ranges, average and maximum scores, status, and failure details. Existing reports are never overwritten. Cached directory results are included without running inference again. If any directory fails, the report is still generated and the process exits with a non-zero status to indicate a partial result. With `--json`, standard output contains the complete directory result array and report path.
 
 ## Score Files
 
@@ -170,7 +172,7 @@ After a directory is scored successfully, SunsetScore writes this JSON file insi
 
 A normal or recursive single-directory run writes the file in the input directory. Independent mode writes one file in every successfully scored descendant directory; failed directories do not receive a score file.
 
-On a later run with the same recursive scope, SunsetScore reads the file and skips model initialization and inference. Use `-f` / `--force` to score again and atomically replace the existing file. Changes to photos, sampling configuration, the CLI interval, or the model do not automatically invalidate an existing score, so use `--force` when any of those changes should affect the result. Invalid or unsupported score files are ignored and replaced after a successful run.
+On a later run with the same recursive scope, SunsetScore reads the file and skips model initialization and inference. Cache files include the SunsetScore application version, ordered sample positions, relative photo paths, scores, and reasons. A cache from a different application version is ignored and atomically replaced after a successful run. Use `-f` / `--force` to refresh a same-version cache. Changes to photos, sampling configuration, the CLI interval, or the model do not otherwise invalidate a same-version score, so use `--force` when any of those changes should affect the result. Invalid or unsupported score files are also ignored and replaced after a successful run.
 
 ## Local Configuration
 
@@ -231,7 +233,13 @@ The fixed prompt gives the model these intended bands:
 - `75-94`: strong sunset colors or clouds illuminated by sunset glow
 - `95-100`: large, intense, and unambiguous sunset glow
 
-These bands describe the requested rubric, but a small generative vision-language model may not obey every numeric boundary consistently. Treat the scores as a coarse ranking signal and validate thresholds against your own photos before using them for automated decisions. The maximum score is generally more useful for answering whether a long sequence contains any sunset-glow frames, while the average can be diluted by many ordinary frames.
+These bands describe the requested rubric, but a small generative vision-language model may not obey every numeric boundary consistently. Treat the scores as a coarse signal and validate the detection rule against your own photos before using it for automated decisions.
+
+## Sunset Detection
+
+A sampled photo is high-scoring at `50` or above. For sequences with at least three sampled positions, SunsetScore reports `has_sunset = true` when any sliding window of three positions contains at least two high-scoring photos. This rejects an isolated high score without diluting a short sunset event with the average of a long sequence. For a sequence with fewer than three sampled positions, any high-scoring photo produces a positive result.
+
+Only high-scoring photos that participate in a qualifying window are included in `sunset_ranges`. Adjacent qualifying sample positions form one inclusive range; a low-scoring or failed position splits the range. Each endpoint is a photo path relative to the input directory, which is a plain filename for non-recursive and independent-directory runs. Average and maximum scores remain available for compatibility and diagnostics but do not determine the Boolean result.
 
 ## Performance
 
@@ -254,6 +262,9 @@ Python callers can obtain the aggregate conclusion directly:
 from sunsetscore import score_directories_independently, score_directory
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
+print(result.has_sunset)
+for sunset_range in result.sunset_ranges:
+    print(sunset_range.start_photo, sunset_range.end_photo)
 print(result.average_score)
 print(result.max_score)
 
@@ -262,7 +273,7 @@ print(batch.report_path)
 print(batch.inference_backend, batch.inference_device)
 print(batch.inference_workers, batch.gpu_memory_limit_gib)
 for directory in batch.directories:
-    print(directory.directory, directory.average_score, directory.max_score)
+    print(directory.directory, directory.has_sunset, directory.sunset_ranges)
 
 cpu_result = score_directory("D:/Photos", cpu_infer=True)
 limited = score_directory(
@@ -273,7 +284,7 @@ limited = score_directory(
 refreshed = score_directory("D:/Photos", force=True)
 ```
 
-Both public scoring functions reuse score files by default and accept `force=True` to refresh them. `ScoreResult` intentionally exposes only `average_score` and `max_score`. Per-image scores, model reasons, success counts, and failure counts are written to runtime logs.
+Both public scoring functions reuse compatible score files by default and accept `force=True` to refresh them. `ScoreResult` exposes `has_sunset`, `sunset_ranges`, `average_score`, and `max_score`. Ordered per-image scores and model reasons are retained in the versioned score file and written to runtime logs.
 
 Unreadable or corrupt sampled images are logged and skipped without selecting a replacement. The run succeeds if at least one sample is scored. An empty input or a run in which every sample fails returns a non-zero exit code and does not emit fabricated scores.
 

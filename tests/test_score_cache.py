@@ -10,6 +10,7 @@ from sunsetscore.independent import run_independent_directory_scores
 from sunsetscore.results import PhotoScore
 from sunsetscore.score_file import SCORE_FILENAME
 from sunsetscore.service import run_directory_score
+from sunsetscore.version import __version__
 
 
 class FakeScorer:
@@ -46,9 +47,12 @@ def test_completed_score_is_written_and_reused(tmp_path) -> None:
 
     score_path = tmp_path / SCORE_FILENAME
     document = json.loads(score_path.read_text(encoding="utf-8"))
-    assert document["format_version"] == 1
+    assert document["format_version"] == 2
+    assert document["application_version"] == __version__
     assert document["model_version"] == "fake-v1"
     assert document["result"]["average_score"] == 25.0
+    assert document["result"]["has_sunset"] is False
+    assert document["sample_scores"][0]["photo"] == "photo.jpg"
 
     second_scorer = FakeScorer({"photo.jpg": 90})
     second = run_directory_score(
@@ -123,6 +127,34 @@ def test_invalid_score_file_is_replaced(tmp_path) -> None:
     assert result.average_score == 40.0
     assert scorer.seen == ["photo.jpg"]
     json.loads((tmp_path / SCORE_FILENAME).read_text(encoding="utf-8"))
+
+
+def test_older_application_cache_is_replaced(tmp_path) -> None:
+    _photo(tmp_path / "photo.jpg")
+    run_directory_score(
+        tmp_path,
+        recursive=False,
+        interval=1,
+        scorer=FakeScorer({"photo.jpg": 25}),
+    )
+    score_path = tmp_path / SCORE_FILENAME
+    document = json.loads(score_path.read_text(encoding="utf-8"))
+    document["application_version"] = "0.6.0"
+    score_path.write_text(json.dumps(document), encoding="utf-8")
+    scorer = FakeScorer({"photo.jpg": 75})
+
+    result = run_directory_score(
+        tmp_path,
+        recursive=False,
+        interval=1,
+        scorer=scorer,
+    )
+
+    replaced = json.loads(score_path.read_text(encoding="utf-8"))
+    assert scorer.seen == ["photo.jpg"]
+    assert result.has_sunset is True
+    assert replaced["application_version"] == __version__
+    assert replaced["result"]["max_score"] == 75
 
 
 def test_independent_mode_uses_all_cached_scores_without_loading_model(

@@ -8,7 +8,7 @@ from .api import score_directories_independently, score_directory
 from .arguments import build_parser
 from .errors import SunsetScoreError
 from .log import configure_logging, logger
-from .results import IndependentScoreResult
+from .results import IndependentScoreResult, SunsetRange
 from .termination import TerminationRequested, handle_termination_signals
 
 
@@ -69,6 +69,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         print(f"平均分: {result.average_score:.2f}")
         print(f"最高分: {result.max_score}")
+        print(f"检测到晚霞: {_yes_no(result.has_sunset)}")
+        print(f"晚霞区间: {_format_ranges(result.sunset_ranges)}")
     if isinstance(result, IndependentScoreResult) and result.failed_directory_count:
         return 1
     return 0
@@ -80,11 +82,28 @@ def _print_independent_result(result: IndependentScoreResult) -> None:
         if item.succeeded:
             print(
                 f"- {item.directory}: 平均分 {item.average_score:.2f}，"
-                f"最高分 {item.max_score}，采样 {item.sampled_count} 张"
+                f"最高分 {item.max_score}，晚霞 {_yes_no(bool(item.has_sunset))}，"
+                f"区间 {_format_ranges(item.sunset_ranges)}，"
+                f"采样 {item.sampled_count} 张"
             )
         else:
             print(f"- {item.directory}: 失败，{item.error}")
     print(f"分析报告: {result.report_path}")
+
+
+def _yes_no(value: bool) -> str:
+    return "是" if value else "否"
+
+
+def _format_ranges(ranges: Sequence[SunsetRange]) -> str:
+    if not ranges:
+        return "-"
+    return "；".join(
+        item.start_photo
+        if item.start_photo == item.end_photo
+        else f"{item.start_photo} 至 {item.end_photo}"
+        for item in ranges
+    )
 
 
 if __name__ == "__main__":

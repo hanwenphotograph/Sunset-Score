@@ -1,7 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class SunsetRange:
+    """Inclusive sampled-photo range containing sunset-glow evidence."""
+
+    start_photo: str
+    end_photo: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "start_photo": self.start_photo,
+            "end_photo": self.end_photo,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -10,9 +24,16 @@ class ScoreResult:
 
     average_score: float
     max_score: int
+    has_sunset: bool = False
+    sunset_ranges: tuple[SunsetRange, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "average_score": self.average_score,
+            "max_score": self.max_score,
+            "has_sunset": self.has_sunset,
+            "sunset_ranges": [item.to_dict() for item in self.sunset_ranges],
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +49,8 @@ class DirectoryScoreResult:
     inference_workers: int = 1
     average_score: float | None = None
     max_score: int | None = None
+    has_sunset: bool | None = None
+    sunset_ranges: tuple[SunsetRange, ...] = ()
     error: str | None = None
 
     @property
@@ -35,7 +58,20 @@ class DirectoryScoreResult:
         return self.error is None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "directory": self.directory,
+            "image_count": self.image_count,
+            "sampled_count": self.sampled_count,
+            "successful_count": self.successful_count,
+            "failed_count": self.failed_count,
+            "interval": self.interval,
+            "inference_workers": self.inference_workers,
+            "average_score": self.average_score,
+            "max_score": self.max_score,
+            "has_sunset": self.has_sunset,
+            "sunset_ranges": [item.to_dict() for item in self.sunset_ranges],
+            "error": self.error,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,3 +121,21 @@ class PhotoScore:
 
     score: int
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class SampleScore:
+    """Successful model result tied to its sampled sequence position."""
+
+    sample_index: int
+    photo: str
+    score: int
+    reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sample_index": self.sample_index,
+            "photo": self.photo,
+            "score": self.score,
+            "reason": self.reason,
+        }

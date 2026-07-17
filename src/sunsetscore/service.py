@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Protocol
 
+from .aggregation import summarize_scores
 from .config import resolve_interval
 from .discovery import discover_images, sample_images
 from .errors import ScoringError
@@ -60,6 +60,8 @@ def run_directory_score(
     return ScoreResult(
         average_score=detail.average_score,
         max_score=detail.max_score,
+        has_sunset=bool(detail.has_sunset),
+        sunset_ranges=detail.sunset_ranges,
     )
 
 
@@ -91,8 +93,10 @@ def run_directory_analysis(
         raise ScoringError("输入目录中没有可评分的 JPG 或 PNG 照片")
 
     resolved_interval = resolve_interval(root, interval)
-    samples = sample_images(images, resolved_interval)
-    logger.info("扫描完成：共 %d 张照片，采样 %d 张", len(images), len(samples))
+    sampled_images = sample_images(images, resolved_interval)
+    logger.info(
+        "扫描完成：共 %d 张照片，采样 %d 张", len(images), len(sampled_images)
+    )
     logger.info(
         "采样间隔：%d，递归扫描：%s", resolved_interval, "是" if recursive else "否"
     )
@@ -106,31 +110,48 @@ def run_directory_analysis(
             logger.info("推理后端：%s，设备：%s", backend.upper(), device)
         plan = resolve_inference_plan(
             active_scorer,
-            len(samples),
+            len(sampled_images),
             gpu_workers=gpu_workers,
             gpu_memory_limit=gpu_memory_limit,
         )
         _configure_workers(active_scorer, plan.workers)
         log_inference_plan(plan)
-        batch = score_image_batch(samples, root, active_scorer, workers=plan.workers)
-        scores = list(batch.scores)
+        batch = score_image_batch(
+            sampled_images,
+            root,
+            active_scorer,
+            workers=plan.workers,
+        )
+        scored_samples = batch.samples
         failed = batch.failed_count
 
-        if not scores:
+        if not scored_samples:
             raise ScoringError("所有采样照片均评分失败，无法生成运行结果")
+
+        summary = summarize_scores(
+            scored_samples,
+            sampled_count=len(sampled_images),
+        )
 
         result = DirectoryScoreResult(
             directory=label,
             image_count=len(images),
-            sampled_count=len(samples),
-            successful_count=len(scores),
+            sampled_count=len(sampled_images),
+            successful_count=len(scored_samples),
             failed_count=failed,
             interval=resolved_interval,
             inference_workers=plan.workers,
-            average_score=_rounded_average(scores),
-            max_score=max(scores),
+            average_score=summary.average_score,
+            max_score=summary.max_score,
+            has_sunset=summary.has_sunset,
+            sunset_ranges=summary.sunset_ranges,
         )
-        logger.info("评分完成：成功 %d 张，失败 %d 张", len(scores), failed)
+        logger.info(
+            "评分完成：成功 %d 张，失败 %d 张，存在晚霞：%s",
+            len(scored_samples),
+            failed,
+            "是" if summary.has_sunset else "否",
+        )
         backend, device = _inference_metadata(active_scorer)
         write_score_file(
             root,
@@ -139,18 +160,13 @@ def run_directory_analysis(
             inference_backend=backend,
             inference_device=device,
             recursive=recursive,
+            sample_scores=scored_samples,
         )
         return result
     finally:
         if owned_scorer:
             assert isinstance(active_scorer, LocalVisionScorer)
             active_scorer.close()
-
-
-def _rounded_average(scores: list[int]) -> float:
-    value = Decimal(sum(scores)) / Decimal(len(scores))
-    return float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
 
 def _inference_metadata(scorer: ImageScorer) -> tuple[str, str]:
     backend = getattr(scorer, "inference_backend", "unknown")
