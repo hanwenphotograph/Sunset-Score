@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-SunsetScore is a cross-platform Python CLI that samples photos from a directory, scores each sampled image for visible sunset-glow characteristics with a local vision-language model, and reports whether sunset glow was detected and where it occurs.
+SunsetScore is a cross-platform Python CLI that samples photos from a directory, uses a local vision-language model to detect clouds visibly colored by sunset glow, and reports whether qualifying glow was detected and where it occurs. A sunset without visibly colored clouds does not qualify.
 
-The score is a model-generated confidence index, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so a visually similar sunrise may also receive a high score.
+The score is a coarse index deterministically mapped from the model's mutually exclusive visual category, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so visually similar sunrise-lit clouds may also receive a high score.
 
 ## Features
 
@@ -242,20 +242,20 @@ Model weights come from the [official Qwen GGUF repository](https://huggingface.
 
 ## Score Interpretation
 
-The fixed prompt gives the model these intended bands:
+The fixed prompt asks the model for one mutually exclusive visual category, which the application maps to these representative scores:
 
-- `0-10`: no visible sky or no sunset-related evidence
-- `11-20`: blue, gray, or black sky with no meaningful warm glow
-- `21-49`: limited warm color that may come from ordinary lighting or a filter
-- `50-74`: clearly visible warm sunset glow
-- `75-94`: strong sunset colors or clouds illuminated by sunset glow
-- `95-100`: large, intense, and unambiguous sunset glow
+- `5`: no visible sky or no evidence of sunset-lit clouds
+- `18`: no recognizable natural clouds or no glow color on the clouds, including a clear-sky sunset, warm horizon, and ordinary white clouds
+- `42`: weak, local, or ambiguous warm or purple coloration on the clouds
+- `62`: one or more cloud bodies clearly show sunset-glow colors, with limited strength or coverage
+- `84`: obvious and intense glow on clouds, with rich texture or broad coverage
+- `98`: extensive, intense, richly layered, and unambiguous sunset-lit clouds
 
-These bands describe the requested rubric, but a small generative vision-language model may not obey every numeric boundary consistently. Treat the scores as a coarse signal and validate the detection rule against your own photos before using it for automated decisions.
+The discrete categories prevent a small generative vision-language model from returning a number that contradicts its own classification. Treat the scores as a coarse signal and validate the detection rule against your own photos before using it for automated decisions.
 
 ## Sunset Detection
 
-A sampled photo is high-scoring at `50` or above. For sequences with at least three sampled positions, SunsetScore reports `has_sunset = true` when any sliding window of three positions contains at least two high-scoring photos. This rejects an isolated high score without diluting a short sunset event with the average of a long sequence. For a sequence with fewer than three sampled positions, any high-scoring photo produces a positive result.
+A sampled photo is high-scoring at `50` or above. A high score requires recognizable cloud bodies visibly colored red, orange, pink, gold, or glow-lit purple; a clear-sky sunset showing only the sun, warm sky, or horizon cannot reach this threshold. For sequences with at least three sampled positions, SunsetScore reports `has_sunset = true` when any sliding window of three positions contains at least two high-scoring photos. This rejects an isolated high score without diluting a short sunset event with the average of a long sequence. For a sequence with fewer than three sampled positions, any high-scoring photo produces a positive result.
 
 Only high-scoring photos that participate in a qualifying window are included in `sunset_ranges`. Adjacent qualifying sample positions form one inclusive range; a low-scoring or failed position splits the range. Each endpoint is a photo path relative to the input directory, which is a plain filename for non-recursive and independent-directory runs. Average and maximum scores remain available for compatibility and diagnostics but do not determine the Boolean result.
 

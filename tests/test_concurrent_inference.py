@@ -54,7 +54,7 @@ def test_concurrent_gpu_failures_trigger_one_cpu_fallback(
             if self.environment.backend == "cuda":
                 gpu_barrier.wait(timeout=5)
                 raise InferenceError("GPU failed")
-            return '{"score":55,"reason":"CPU fallback"}'
+            return '{"category":"colored_clouds","reason":"CPU fallback"}'
 
         def close(self):
             self.closed = True
@@ -75,7 +75,7 @@ def test_concurrent_gpu_failures_trigger_one_cpu_fallback(
         with ThreadPoolExecutor(max_workers=2) as pool:
             scores = list(pool.map(scorer.score, images))
 
-    assert [item.score for item in scores] == [55, 55]
+    assert [item.score for item in scores] == [62, 62]
     assert fallback_count == 1
     assert [item.environment.backend for item in instances] == ["cuda", "cpu"]
     assert all(item.closed for item in instances)
