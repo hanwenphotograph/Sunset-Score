@@ -17,14 +17,14 @@ def _samples(*scores: int) -> tuple[SampleScore, ...]:
 
 
 def test_isolated_high_score_is_not_sunset() -> None:
-    result = summarize_scores(_samples(20, 75, 20), sampled_count=3)
+    result = summarize_scores(_samples(1, 4, 1), sampled_count=3)
 
     assert result.has_sunset is False
     assert result.sunset_ranges == ()
 
 
 def test_two_high_scores_in_three_samples_are_sunset() -> None:
-    result = summarize_scores(_samples(75, 20, 75), sampled_count=3)
+    result = summarize_scores(_samples(4, 1, 4), sampled_count=3)
 
     assert result.has_sunset is True
     assert result.sunset_ranges == (
@@ -35,7 +35,7 @@ def test_two_high_scores_in_three_samples_are_sunset() -> None:
 
 def test_contiguous_ranges_exclude_unqualified_high_scores() -> None:
     result = summarize_scores(
-        _samples(20, 50, 75, 80, 20, 20, 75, 20, 20),
+        _samples(1, 3, 4, 5, 1, 1, 4, 1, 1),
         sampled_count=9,
     )
 
@@ -46,7 +46,7 @@ def test_contiguous_ranges_exclude_unqualified_high_scores() -> None:
 
 
 def test_short_sequence_uses_any_high_score() -> None:
-    result = summarize_scores(_samples(20, 50), sampled_count=2)
+    result = summarize_scores(_samples(1, 3), sampled_count=2)
 
     assert result.has_sunset is True
     assert result.sunset_ranges == (
@@ -56,8 +56,8 @@ def test_short_sequence_uses_any_high_score() -> None:
 
 def test_failed_sample_keeps_successful_neighbors_separate() -> None:
     samples = (
-        SampleScore(1, "first.jpg", 75, "模拟理由"),
-        SampleScore(3, "third.jpg", 75, "模拟理由"),
+        SampleScore(1, "first.jpg", 4, "模拟理由"),
+        SampleScore(3, "third.jpg", 4, "模拟理由"),
     )
 
     result = summarize_scores(samples, sampled_count=3)

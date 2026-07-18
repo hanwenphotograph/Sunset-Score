@@ -90,7 +90,7 @@ def test_independent_alias_prints_directories_and_report(capsys, monkeypatch) ->
     assert cli.main(["photos", "-r", "-ind", "--interval", "5"]) == 0
     output = capsys.readouterr()
     assert calls == [(Path("photos"), 5, False, None, None, False)]
-    assert "day-1: 平均分 62.50，最高分 91" in output.out
+    assert "day-1: 平均分 3.50，最高分 5" in output.out
     assert "晚霞 是，区间 first.jpg 至 third.jpg" in output.out
     assert "分析报告: C:/photos/report.md" in output.out
 
@@ -125,8 +125,8 @@ def _independent_result(*, failed: bool = False) -> IndependentScoreResult:
             sampled_count=1,
             successful_count=1,
             interval=10,
-            average_score=62.5,
-            max_score=91,
+            average_score=3.5,
+            max_score=5,
             has_sunset=True,
             sunset_ranges=(SunsetRange("first.jpg", "third.jpg"),),
         )

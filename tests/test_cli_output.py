@@ -12,8 +12,8 @@ def test_json_mode_prints_only_conclusion(capsys, monkeypatch, tmp_path) -> None
         cli,
         "score_directory",
         lambda *args, **kwargs: ScoreResult(
-            average_score=62.5,
-            max_score=91,
+            average_score=3.5,
+            max_score=5,
             has_sunset=True,
             sunset_ranges=(SunsetRange("one.jpg", "three.jpg"),),
         ),
@@ -22,8 +22,8 @@ def test_json_mode_prints_only_conclusion(capsys, monkeypatch, tmp_path) -> None
     assert cli.main([str(tmp_path), "--json"]) == 0
     output = capsys.readouterr()
     assert json.loads(output.out) == {
-        "average_score": 62.5,
-        "max_score": 91,
+        "average_score": 3.5,
+        "max_score": 5,
         "has_sunset": True,
         "sunset_ranges": [
             {"start_photo": "one.jpg", "end_photo": "three.jpg"}
@@ -40,7 +40,7 @@ def test_autopack_keeps_json_stdout_machine_readable(
     monkeypatch.setattr(
         cli,
         "score_directory",
-        lambda *args, **kwargs: ScoreResult(average_score=20, max_score=20),
+        lambda *args, **kwargs: ScoreResult(average_score=1, max_score=1),
     )
     monkeypatch.setattr(
         cli,
@@ -51,8 +51,8 @@ def test_autopack_keeps_json_stdout_machine_readable(
     assert cli.main([str(tmp_path), "--autopack", "--json"]) == 0
 
     assert json.loads(capsys.readouterr().out) == {
-        "average_score": 20,
-        "max_score": 20,
+        "average_score": 1,
+        "max_score": 1,
         "has_sunset": False,
         "sunset_ranges": [],
     }
@@ -62,13 +62,13 @@ def test_text_mode_formats_average_to_two_places(capsys, monkeypatch, tmp_path) 
     monkeypatch.setattr(
         cli,
         "score_directory",
-        lambda *args, **kwargs: ScoreResult(average_score=7.0, max_score=7),
+        lambda *args, **kwargs: ScoreResult(average_score=2.0, max_score=2),
     )
 
     assert cli.main([str(tmp_path)]) == 0
     assert capsys.readouterr().out == (
-        "平均分: 7.00\n"
-        "最高分: 7\n"
+        "平均分: 2.00\n"
+        "最高分: 2\n"
         "检测到晚霞: 否\n"
         "晚霞区间: -\n"
     )

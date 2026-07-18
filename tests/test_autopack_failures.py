@@ -17,8 +17,8 @@ def _photo(path: Path) -> None:
 
 def _sunset_result(start: str, end: str) -> ScoreResult:
     return ScoreResult(
-        average_score=75,
-        max_score=75,
+        average_score=4,
+        max_score=4,
         has_sunset=True,
         sunset_ranges=(SunsetRange(start, end),),
     )

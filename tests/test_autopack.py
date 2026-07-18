@@ -35,8 +35,8 @@ def test_single_result_copies_complete_ranges_and_replaces_output(tmp_path) -> N
         _photo(tmp_path / f"photo{number}.jpg")
     _photo(tmp_path / "SunsetResult" / "stale.jpg")
     result = ScoreResult(
-        average_score=30,
-        max_score=75,
+        average_score=2,
+        max_score=4,
         has_sunset=True,
         sunset_ranges=(
             SunsetRange("photo2.jpg", "photo4.jpg"),
@@ -60,8 +60,8 @@ def test_recursive_result_preserves_relative_directories(tmp_path) -> None:
     for name in ("a/photo1.jpg", "a/photo2.jpg", "a/photo3.jpg", "b/photo1.jpg"):
         _photo(tmp_path / name)
     result = ScoreResult(
-        average_score=60,
-        max_score=75,
+        average_score=3,
+        max_score=4,
         has_sunset=True,
         sunset_ranges=(SunsetRange("a/photo2.jpg", "b/photo1.jpg"),),
     )
@@ -111,7 +111,7 @@ def test_no_sunset_creates_an_empty_managed_directory(tmp_path) -> None:
 
     packed = pack_score_result(
         tmp_path,
-        ScoreResult(average_score=20, max_score=20),
+        ScoreResult(average_score=1, max_score=1),
         recursive=False,
     )
 
@@ -162,4 +162,4 @@ class _FakeScorer:
     free_gpu_memory_mib = None
 
     def score(self, image: Path) -> PhotoScore:
-        return PhotoScore(75, f"{image.name} 存在明显晚霞")
+        return PhotoScore(4, f"{image.name} 存在明显晚霞")

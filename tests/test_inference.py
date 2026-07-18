@@ -65,8 +65,8 @@ def test_prompt_requires_visibly_colored_clouds_for_high_scores() -> None:
     assert "没有可辨认的自然云层时只能选择" in SCORING_PROMPT
     assert "云体没有明确的红、橙、粉、金或霞光紫色时不能选择" in SCORING_PROMPT
     assert "白、灰、蓝色云层属于普通日间云" in SCORING_PROMPT
-    assert max(list(CATEGORY_SCORES.values())[:3]) < 50
-    assert min(list(CATEGORY_SCORES.values())[3:]) >= 50
+    assert "必须选择照片满足的最高类别" in SCORING_PROMPT
+    assert list(CATEGORY_SCORES.values()) == list(range(6))
 
 
 def test_parser_uses_last_valid_json_object() -> None:
@@ -77,7 +77,7 @@ def test_parser_uses_last_valid_json_object() -> None:
 
     result = parse_model_response(output)
 
-    assert result.score == 84
+    assert result.score == 4
     assert result.reason == "红色 云层"
 
 
@@ -85,7 +85,7 @@ def test_parser_uses_last_valid_json_object() -> None:
     "output",
     [
         "no json",
-        '{"score": 84, "reason": "legacy"}',
+        '{"score": 4, "reason": "legacy"}',
         '{"category": true, "reason": "x"}',
         '{"category": "unknown", "reason": "x"}',
         '{"category": "no_evidence", "reason": ""}',
@@ -105,7 +105,7 @@ def test_runner_sends_prepared_image_and_prompt(tmp_path, monkeypatch) -> None:
     with LocalVisionScorer(_environment(tmp_path)) as scorer:
         result = scorer.score(_image(tmp_path))
 
-    assert result.score == 62
+    assert result.score == 3
     assert instances[0].calls == 1
     assert instances[0].closed
 
@@ -149,7 +149,7 @@ def test_gpu_inference_failure_falls_back_to_cpu(tmp_path, monkeypatch) -> None:
         assert scorer.restore_acceleration()
         assert scorer.inference_backend == "cuda"
 
-    assert result.score == 62
+    assert result.score == 3
     assert [item.environment.backend for item in instances] == ["cuda", "cpu"]
     assert all(item.closed for item in instances)
 
@@ -169,7 +169,7 @@ def test_runner_retries_once_when_json_is_invalid(tmp_path, monkeypatch) -> None
         result = scorer.score(_image(tmp_path))
 
     assert instances[0].calls == 2
-    assert result.score == 42
+    assert result.score == 2
 
 
 def test_runner_reports_service_failure(tmp_path, monkeypatch) -> None:

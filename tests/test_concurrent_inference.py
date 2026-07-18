@@ -75,7 +75,7 @@ def test_concurrent_gpu_failures_trigger_one_cpu_fallback(
         with ThreadPoolExecutor(max_workers=2) as pool:
             scores = list(pool.map(scorer.score, images))
 
-    assert [item.score for item in scores] == [62, 62]
+    assert [item.score for item in scores] == [3, 3]
     assert fallback_count == 1
     assert [item.environment.backend for item in instances] == ["cuda", "cpu"]
     assert all(item.closed for item in instances)
