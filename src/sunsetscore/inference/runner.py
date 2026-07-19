@@ -53,6 +53,10 @@ class LocalVisionScorer:
     def free_gpu_memory_mib(self) -> int | None:
         return self._environment.free_gpu_memory_mib
 
+    @property
+    def accelerator_fallback_active(self) -> bool:
+        return self._fallback_attempted and self._environment.backend == "cpu"
+
     def configure_workers(self, workers: int) -> None:
         if self._closed.is_set():
             raise RuntimeError("scorer is closed")
@@ -74,6 +78,28 @@ class LocalVisionScorer:
             except InferenceError:
                 second_output = self._invoke(normalized, RETRY_PROMPT)
                 return parse_model_response(second_output)
+
+    def restore_acceleration(self) -> bool:
+        if not self.accelerator_fallback_active or self._closed.is_set():
+            return False
+        replacement = ensure_runtime_environment(force_cpu=False)
+        if replacement.backend == "cpu":
+            return False
+        with self._fallback_lock:
+            if not self.accelerator_fallback_active or self._closed.is_set():
+                return False
+            with self._server_lock:
+                server, self._server = self._server, None
+                self._environment = replacement
+                self._fallback_attempted = False
+            if server is not None:
+                server.close()
+        logger.info(
+            "已重新启用推理后端：%s，设备：%s",
+            replacement.backend.upper(),
+            replacement.device,
+        )
+        return True
 
     def close(self) -> None:
         self._closed.set()

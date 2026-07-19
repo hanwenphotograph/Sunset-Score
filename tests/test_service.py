@@ -43,7 +43,7 @@ def _photos(directory: Path, names: list[str]) -> None:
 
 def test_service_uses_natural_order_and_interval(tmp_path) -> None:
     _photos(tmp_path, ["photo10.jpg", "photo2.jpg", "photo1.jpg"])
-    scorer = FakeScorer({"photo1.jpg": 20, "photo10.jpg": 80})
+    scorer = FakeScorer({"photo1.jpg": 1, "photo10.jpg": 5})
 
     result = run_directory_score(
         tmp_path,
@@ -53,8 +53,8 @@ def test_service_uses_natural_order_and_interval(tmp_path) -> None:
     )
 
     assert scorer.seen == ["photo1.jpg", "photo10.jpg"]
-    assert result.average_score == 50.0
-    assert result.max_score == 80
+    assert result.average_score == 3.0
+    assert result.max_score == 5
 
 
 def test_service_reads_interval_from_local_config(tmp_path) -> None:
@@ -63,7 +63,7 @@ def test_service_reads_interval_from_local_config(tmp_path) -> None:
         "[sampling]\ninterval = 2\n",
         encoding="utf-8",
     )
-    scorer = FakeScorer({"1.jpg": 10, "3.jpg": 30})
+    scorer = FakeScorer({"1.jpg": 1, "3.jpg": 3})
 
     result = run_directory_score(
         tmp_path,
@@ -73,12 +73,12 @@ def test_service_reads_interval_from_local_config(tmp_path) -> None:
     )
 
     assert scorer.seen == ["1.jpg", "3.jpg"]
-    assert result.average_score == 20.0
+    assert result.average_score == 2.0
 
 
 def test_failed_sample_is_skipped_without_replacement(tmp_path) -> None:
     _photos(tmp_path, ["1.jpg", "2.jpg", "3.jpg", "4.jpg"])
-    scorer = FakeScorer({"3.jpg": 70}, failures={"1.jpg"})
+    scorer = FakeScorer({"3.jpg": 4}, failures={"1.jpg"})
 
     result = run_directory_score(
         tmp_path,
@@ -88,8 +88,8 @@ def test_failed_sample_is_skipped_without_replacement(tmp_path) -> None:
     )
 
     assert scorer.seen == ["1.jpg", "3.jpg"]
-    assert result.average_score == 70.0
-    assert result.max_score == 70
+    assert result.average_score == 4.0
+    assert result.max_score == 4
 
 
 def test_average_uses_round_half_up(tmp_path) -> None:
@@ -134,7 +134,7 @@ def test_service_closes_owned_local_scorer(tmp_path, monkeypatch) -> None:
 
         def __init__(self, *, cpu_infer):
             del cpu_infer
-            super().__init__({"photo.jpg": 60})
+            super().__init__({"photo.jpg": 4})
             self.closed = False
             instances.append(self)
 

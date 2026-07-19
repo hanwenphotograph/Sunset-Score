@@ -8,7 +8,7 @@ from .results import DirectoryScoreResult, SampleScore, SunsetRange
 from .version import __version__
 
 
-SCORE_FORMAT_VERSION = 2
+SCORE_FORMAT_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +67,7 @@ def _result(data: dict[str, Any], directory_label: str) -> DirectoryScoreResult:
         interval=_integer(data.get("interval"), "interval", 1),
         inference_workers=_integer(data.get("inference_workers"), "inference_workers", 1),
         average_score=_number(data.get("average_score"), "average_score"),
-        max_score=_integer(data.get("max_score"), "max_score", 0, 100),
+        max_score=_integer(data.get("max_score"), "max_score", 0, 5),
         has_sunset=_boolean(data.get("has_sunset"), "has_sunset"),
         sunset_ranges=_sunset_ranges(data.get("sunset_ranges")),
     )
@@ -88,7 +88,7 @@ def _sample_score(value: Any) -> SampleScore:
     return SampleScore(
         sample_index=_integer(data.get("sample_index"), "sample_index", 1),
         photo=_text(data.get("photo"), "photo"),
-        score=_integer(data.get("score"), "score", 0, 100),
+        score=_integer(data.get("score"), "score", 0, 5),
         reason=_text(data.get("reason"), "reason"),
     )
 
@@ -163,6 +163,6 @@ def _integer(value: Any, name: str, minimum: int, maximum: int | None = None) ->
 
 
 def _number(value: Any, name: str) -> float:
-    if type(value) not in (int, float) or not 0 <= value <= 100:
-        raise ValueError(f"{name} 必须是 0 到 100 之间的数字")
+    if type(value) not in (int, float) or not 0 <= value <= 5:
+        raise ValueError(f"{name} 必须是 0 到 5 之间的数字")
     return float(value)

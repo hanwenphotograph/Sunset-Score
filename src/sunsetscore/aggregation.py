@@ -6,7 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from .results import SampleScore, SunsetRange
 
 
-SUNSET_SCORE_THRESHOLD = 50
+SUNSET_SCORE_THRESHOLD = 3
 DETECTION_WINDOW_SIZE = 3
 MIN_HIGH_SAMPLES = 2
 

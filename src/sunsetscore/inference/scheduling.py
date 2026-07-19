@@ -62,7 +62,12 @@ def resolve_inference_plan(
     parallel = bool(getattr(scorer, "parallel_scoring_supported", False))
     if not parallel:
         if gpu_workers is not None or gpu_memory_limit is not None:
-            raise ScoringError("GPU 并发限制只能用于实际启用的 GPU 推理后端")
+            fallback_active = bool(
+                getattr(scorer, "accelerator_fallback_active", False)
+            )
+            if not fallback_active:
+                raise ScoringError("GPU 并发限制只能用于实际启用的 GPU 推理后端")
+            logger.warning("GPU 回退仍处于活动状态，本目录忽略 GPU 并发限制")
         return InferencePlan(1, None, False)
 
     free_memory = _optional_positive_int(getattr(scorer, "free_gpu_memory_mib", None))

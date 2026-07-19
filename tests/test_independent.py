@@ -57,7 +57,7 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
         "[sampling]\ninterval = 2\n",
         encoding="utf-8",
     )
-    scorer = FakeScorer({"first.jpg": 20, "third.jpg": 80, "only.jpg": 40})
+    scorer = FakeScorer({"first.jpg": 1, "third.jpg": 4, "only.jpg": 2})
     timestamp = datetime(2026, 7, 16, 12, 34, 56, tzinfo=timezone.utc)
 
     result = run_independent_directory_scores(
@@ -72,10 +72,10 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert first.interval == 2
     assert first.image_count == 3
     assert first.sampled_count == 2
-    assert first.average_score == 50.0
-    assert first.max_score == 80
+    assert first.average_score == 2.5
+    assert first.max_score == 4
     assert second.interval == 10
-    assert second.average_score == 40.0
+    assert second.average_score == 2.0
     assert (tmp_path / "a2" / SCORE_FILENAME).is_file()
     assert (tmp_path / "a10" / SCORE_FILENAME).is_file()
     assert "root.jpg" not in scorer.seen
@@ -86,7 +86,7 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
     assert "- 推理设备：`CUDA0: Fake GPU`" in report
     assert "- 推理服务槽位：`1`" in report
     assert (
-        "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 50.00 | 80 | 是 | third.jpg | 成功 |"
+        "| a2 | 3 | 2 | 2 | 0 | 2 | 1 | 2.50 | 4 | 是 | third.jpg | 成功 |"
         in report
     )
 
@@ -94,7 +94,7 @@ def test_independent_analysis_uses_each_directory_config_and_writes_report(
 def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -> None:
     _photo(tmp_path / "bad" / "bad.jpg")
     _photo(tmp_path / "good" / "good.jpg")
-    scorer = FakeScorer({"good.jpg": 70}, failures={"bad.jpg"})
+    scorer = FakeScorer({"good.jpg": 4}, failures={"bad.jpg"})
 
     result = run_independent_directory_scores(
         tmp_path,
@@ -107,7 +107,7 @@ def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -
     assert result.failed_directory_count == 1
     assert result.directories[0].directory == "bad"
     assert "所有采样照片" in (result.directories[0].error or "")
-    assert result.directories[1].average_score == 70.0
+    assert result.directories[1].average_score == 4.0
     assert not (tmp_path / "bad" / SCORE_FILENAME).exists()
     assert (tmp_path / "good" / SCORE_FILENAME).is_file()
     report = Path(result.report_path).read_text(encoding="utf-8")
@@ -117,7 +117,7 @@ def test_independent_analysis_reports_failed_directory_and_continues(tmp_path) -
 
 def test_cached_run_reuses_report_and_new_inference_creates_report(tmp_path) -> None:
     _photo(tmp_path / "child" / "photo.jpg")
-    scorer = FakeScorer({"photo.jpg": 20})
+    scorer = FakeScorer({"photo.jpg": 1})
     timestamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
     first = run_independent_directory_scores(
@@ -159,7 +159,7 @@ def test_independent_analysis_requires_a_valid_descendant_directory(tmp_path) ->
         run_independent_directory_scores(
             tmp_path,
             interval=1,
-            scorer=FakeScorer({"root.jpg": 20}),
+            scorer=FakeScorer({"root.jpg": 1}),
         )
 
 
@@ -170,7 +170,7 @@ def test_independent_analysis_closes_shared_owned_scorer(tmp_path, monkeypatch) 
     class ManagedScorer(FakeScorer):
         def __init__(self, *, cpu_infer):
             del cpu_infer
-            super().__init__({"photo.jpg": 50})
+            super().__init__({"photo.jpg": 3})
             self.closed = False
             instances.append(self)
 

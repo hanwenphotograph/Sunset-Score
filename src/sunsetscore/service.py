@@ -104,6 +104,7 @@ def run_directory_analysis(
     owned_scorer = scorer is None
     active_scorer = scorer or LocalVisionScorer(cpu_infer=cpu_infer)
     try:
+        _restore_acceleration(active_scorer)
         if log_model:
             logger.info("评分模型：%s", active_scorer.model_version)
             backend, device = _inference_metadata(active_scorer)
@@ -178,3 +179,9 @@ def _configure_workers(scorer: ImageScorer, workers: int) -> None:
     configure = getattr(scorer, "configure_workers", None)
     if callable(configure):
         configure(workers)
+
+
+def _restore_acceleration(scorer: ImageScorer) -> None:
+    restore = getattr(scorer, "restore_acceleration", None)
+    if callable(restore):
+        restore()

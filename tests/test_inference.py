@@ -9,7 +9,7 @@ import pytest
 from sunsetscore.errors import InferenceError
 from sunsetscore.inference import runner
 from sunsetscore.inference.parser import parse_model_response
-from sunsetscore.inference.prompt import SCORING_PROMPT
+from sunsetscore.inference.prompt import CATEGORY_SCORES, SCORING_PROMPT
 from sunsetscore.inference.runner import LocalVisionScorer
 from sunsetscore.runtime import RuntimeEnvironment
 
@@ -60,12 +60,24 @@ def _fake_server(monkeypatch, outputs: Iterator[str | Exception]):
     return instances
 
 
+def test_prompt_requires_visibly_colored_clouds_for_high_scores() -> None:
+    assert "评分目标不是日落本身" in SCORING_PROMPT
+    assert "没有可辨认的自然云层时只能选择" in SCORING_PROMPT
+    assert "云体没有明确的红、橙、粉、金或霞光紫色时不能选择" in SCORING_PROMPT
+    assert "白、灰、蓝色云层属于普通日间云" in SCORING_PROMPT
+    assert "必须选择照片满足的最高类别" in SCORING_PROMPT
+    assert list(CATEGORY_SCORES.values()) == list(range(6))
+
+
 def test_parser_uses_last_valid_json_object() -> None:
-    output = 'noise {"score": 2} more {"score":87,"reason":"  红色 云层  "}'
+    output = (
+        'noise {"category":"unknown"} more '
+        '{"category":"strong_colored_clouds","reason":"  红色 云层  "}'
+    )
 
     result = parse_model_response(output)
 
-    assert result.score == 87
+    assert result.score == 4
     assert result.reason == "红色 云层"
 
 
@@ -73,9 +85,10 @@ def test_parser_uses_last_valid_json_object() -> None:
     "output",
     [
         "no json",
-        '{"score": true, "reason": "x"}',
-        '{"score": 101, "reason": "x"}',
-        '{"score": 20, "reason": ""}',
+        '{"score": 4, "reason": "legacy"}',
+        '{"category": true, "reason": "x"}',
+        '{"category": "unknown", "reason": "x"}',
+        '{"category": "no_evidence", "reason": ""}',
     ],
 )
 def test_parser_rejects_invalid_responses(output: str) -> None:
@@ -86,13 +99,13 @@ def test_parser_rejects_invalid_responses(output: str) -> None:
 def test_runner_sends_prepared_image_and_prompt(tmp_path, monkeypatch) -> None:
     instances = _fake_server(
         monkeypatch,
-        iter(['{"score":76,"reason":"天空存在橙红色云层"}']),
+        iter(['{"category":"colored_clouds","reason":"天空存在橙红色云层"}']),
     )
 
     with LocalVisionScorer(_environment(tmp_path)) as scorer:
         result = scorer.score(_image(tmp_path))
 
-    assert result.score == 76
+    assert result.score == 3
     assert instances[0].calls == 1
     assert instances[0].closed
 
@@ -100,7 +113,7 @@ def test_runner_sends_prepared_image_and_prompt(tmp_path, monkeypatch) -> None:
 def test_gpu_runner_configures_shared_server_slots(tmp_path, monkeypatch) -> None:
     instances = _fake_server(
         monkeypatch,
-        iter(['{"score":80,"reason":"明显晚霞"}']),
+        iter(['{"category":"strong_colored_clouds","reason":"明显晚霞"}']),
     )
 
     with LocalVisionScorer(_environment(tmp_path, backend="cuda")) as scorer:
@@ -113,26 +126,30 @@ def test_gpu_runner_configures_shared_server_slots(tmp_path, monkeypatch) -> Non
 
 def test_gpu_inference_failure_falls_back_to_cpu(tmp_path, monkeypatch) -> None:
     cpu = _environment(tmp_path / "cpu", backend="cpu")
+    restored_gpu = _environment(tmp_path / "restored", backend="cuda")
     instances = _fake_server(
         monkeypatch,
         iter(
             [
                 InferenceError("GPU failed"),
-                '{"score":55,"reason":"CPU fallback"}',
+                '{"category":"colored_clouds","reason":"CPU fallback"}',
             ]
         ),
     )
     monkeypatch.setattr(
         runner,
         "ensure_runtime_environment",
-        lambda *, force_cpu: cpu if force_cpu else pytest.fail("must force CPU"),
+        lambda *, force_cpu: cpu if force_cpu else restored_gpu,
     )
 
     with LocalVisionScorer(_environment(tmp_path / "gpu", backend="cuda")) as scorer:
         result = scorer.score(_image(tmp_path))
         assert scorer.inference_backend == "cpu"
+        assert scorer.accelerator_fallback_active
+        assert scorer.restore_acceleration()
+        assert scorer.inference_backend == "cuda"
 
-    assert result.score == 55
+    assert result.score == 3
     assert [item.environment.backend for item in instances] == ["cuda", "cpu"]
     assert all(item.closed for item in instances)
 
@@ -140,14 +157,19 @@ def test_gpu_inference_failure_falls_back_to_cpu(tmp_path, monkeypatch) -> None:
 def test_runner_retries_once_when_json_is_invalid(tmp_path, monkeypatch) -> None:
     instances = _fake_server(
         monkeypatch,
-        iter(["invalid", '{"score":30,"reason":"证据较弱"}']),
+        iter(
+            [
+                "invalid",
+                '{"category":"uncertain_colored_clouds","reason":"证据较弱"}',
+            ]
+        ),
     )
 
     with LocalVisionScorer(_environment(tmp_path)) as scorer:
         result = scorer.score(_image(tmp_path))
 
     assert instances[0].calls == 2
-    assert result.score == 30
+    assert result.score == 2
 
 
 def test_runner_reports_service_failure(tmp_path, monkeypatch) -> None:
@@ -161,7 +183,7 @@ def test_runner_reports_service_failure(tmp_path, monkeypatch) -> None:
 def test_closed_runner_cannot_restart_service(tmp_path, monkeypatch) -> None:
     instances = _fake_server(
         monkeypatch,
-        iter(['{"score":20,"reason":"unused"}']),
+        iter(['{"category":"no_colored_clouds","reason":"unused"}']),
     )
     scorer = LocalVisionScorer(_environment(tmp_path))
     scorer.close()

@@ -36,7 +36,7 @@ def _photo(path: Path) -> None:
 
 def test_completed_score_is_written_and_reused(tmp_path) -> None:
     _photo(tmp_path / "photo.jpg")
-    first_scorer = FakeScorer({"photo.jpg": 25})
+    first_scorer = FakeScorer({"photo.jpg": 1})
 
     first = run_directory_score(
         tmp_path,
@@ -47,14 +47,14 @@ def test_completed_score_is_written_and_reused(tmp_path) -> None:
 
     score_path = tmp_path / SCORE_FILENAME
     document = json.loads(score_path.read_text(encoding="utf-8"))
-    assert document["format_version"] == 2
+    assert document["format_version"] == 3
     assert document["application_version"] == __version__
     assert document["model_version"] == "fake-v1"
-    assert document["result"]["average_score"] == 25.0
+    assert document["result"]["average_score"] == 1.0
     assert document["result"]["has_sunset"] is False
     assert document["sample_scores"][0]["photo"] == "photo.jpg"
 
-    second_scorer = FakeScorer({"photo.jpg": 90})
+    second_scorer = FakeScorer({"photo.jpg": 5})
     second = run_directory_score(
         tmp_path,
         recursive=False,
@@ -72,9 +72,9 @@ def test_force_rescores_and_overwrites_score_file(tmp_path) -> None:
         tmp_path,
         recursive=False,
         interval=1,
-        scorer=FakeScorer({"photo.jpg": 25}),
+        scorer=FakeScorer({"photo.jpg": 1}),
     )
-    scorer = FakeScorer({"photo.jpg": 90})
+    scorer = FakeScorer({"photo.jpg": 5})
 
     result = run_directory_score(
         tmp_path,
@@ -85,9 +85,9 @@ def test_force_rescores_and_overwrites_score_file(tmp_path) -> None:
     )
 
     document = json.loads((tmp_path / SCORE_FILENAME).read_text(encoding="utf-8"))
-    assert result.average_score == 90.0
+    assert result.average_score == 5.0
     assert scorer.seen == ["photo.jpg"]
-    assert document["result"]["average_score"] == 90.0
+    assert document["result"]["average_score"] == 5.0
 
 
 def test_different_recursive_scope_is_not_reused(tmp_path) -> None:
@@ -97,9 +97,9 @@ def test_different_recursive_scope_is_not_reused(tmp_path) -> None:
         tmp_path,
         recursive=False,
         interval=1,
-        scorer=FakeScorer({"root.jpg": 20}),
+        scorer=FakeScorer({"root.jpg": 1}),
     )
-    scorer = FakeScorer({"root.jpg": 20, "nested.jpg": 80})
+    scorer = FakeScorer({"root.jpg": 1, "nested.jpg": 5})
 
     result = run_directory_score(
         tmp_path,
@@ -108,14 +108,14 @@ def test_different_recursive_scope_is_not_reused(tmp_path) -> None:
         scorer=scorer,
     )
 
-    assert result.average_score == 50.0
+    assert result.average_score == 3.0
     assert set(scorer.seen) == {"root.jpg", "nested.jpg"}
 
 
 def test_invalid_score_file_is_replaced(tmp_path) -> None:
     _photo(tmp_path / "photo.jpg")
     (tmp_path / SCORE_FILENAME).write_text("not json", encoding="utf-8")
-    scorer = FakeScorer({"photo.jpg": 40})
+    scorer = FakeScorer({"photo.jpg": 2})
 
     result = run_directory_score(
         tmp_path,
@@ -124,7 +124,7 @@ def test_invalid_score_file_is_replaced(tmp_path) -> None:
         scorer=scorer,
     )
 
-    assert result.average_score == 40.0
+    assert result.average_score == 2.0
     assert scorer.seen == ["photo.jpg"]
     json.loads((tmp_path / SCORE_FILENAME).read_text(encoding="utf-8"))
 
@@ -135,13 +135,13 @@ def test_older_application_cache_is_replaced(tmp_path) -> None:
         tmp_path,
         recursive=False,
         interval=1,
-        scorer=FakeScorer({"photo.jpg": 25}),
+        scorer=FakeScorer({"photo.jpg": 1}),
     )
     score_path = tmp_path / SCORE_FILENAME
     document = json.loads(score_path.read_text(encoding="utf-8"))
     document["application_version"] = "0.6.0"
     score_path.write_text(json.dumps(document), encoding="utf-8")
-    scorer = FakeScorer({"photo.jpg": 75})
+    scorer = FakeScorer({"photo.jpg": 4})
 
     result = run_directory_score(
         tmp_path,
@@ -154,7 +154,7 @@ def test_older_application_cache_is_replaced(tmp_path) -> None:
     assert scorer.seen == ["photo.jpg"]
     assert result.has_sunset is True
     assert replaced["application_version"] == __version__
-    assert replaced["result"]["max_score"] == 75
+    assert replaced["result"]["max_score"] == 4
 
 
 def test_independent_mode_uses_all_cached_scores_without_loading_model(
@@ -166,7 +166,7 @@ def test_independent_mode_uses_all_cached_scores_without_loading_model(
     first = run_independent_directory_scores(
         tmp_path,
         interval=1,
-        scorer=FakeScorer({"one.jpg": 30, "two.jpg": 70}),
+        scorer=FakeScorer({"one.jpg": 2, "two.jpg": 4}),
     )
     monkeypatch.setattr(
         independent,
@@ -176,11 +176,11 @@ def test_independent_mode_uses_all_cached_scores_without_loading_model(
 
     second = run_independent_directory_scores(tmp_path, interval=1)
 
-    assert [item.average_score for item in second.directories] == [30.0, 70.0]
+    assert [item.average_score for item in second.directories] == [2.0, 4.0]
     assert second.model_version == first.model_version
     assert Path(second.report_path).is_file()
 
-    forced_scorer = FakeScorer({"one.jpg": 40, "two.jpg": 80})
+    forced_scorer = FakeScorer({"one.jpg": 3, "two.jpg": 5})
     forced = run_independent_directory_scores(
         tmp_path,
         interval=1,
@@ -188,4 +188,4 @@ def test_independent_mode_uses_all_cached_scores_without_loading_model(
         force=True,
     )
     assert forced_scorer.seen == ["one.jpg", "two.jpg"]
-    assert [item.average_score for item in forced.directories] == [40.0, 80.0]
+    assert [item.average_score for item in forced.directories] == [3.0, 5.0]

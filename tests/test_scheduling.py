@@ -82,6 +82,22 @@ def test_gpu_limits_are_rejected_for_serial_scorer() -> None:
         )
 
 
+def test_gpu_limits_are_ignored_after_accelerator_fallback() -> None:
+    class FallbackCpuScorer:
+        parallel_scoring_supported = False
+        accelerator_fallback_active = True
+
+    plan = resolve_inference_plan(
+        FallbackCpuScorer(),
+        10,
+        gpu_workers=2,
+        gpu_memory_limit=6,
+    )
+
+    assert plan.workers == 1
+    assert not plan.manually_limited
+
+
 def test_explicit_worker_limit_cannot_exceed_two_server_slots() -> None:
     scorer = FakeGpuScorer()
     scorer.free_gpu_memory_mib = 100_000

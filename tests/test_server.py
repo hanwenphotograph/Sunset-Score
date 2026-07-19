@@ -70,7 +70,7 @@ def test_request_body_contains_image_prompt_and_json_schema(tmp_path) -> None:
     assert base64.b64decode(encoded) == b"png-data"
     assert content[1] == {"type": "text", "text": "score this"}
     assert payload["response_format"]["json_schema"]["schema"]["required"] == [
-        "score",
+        "category",
         "reason",
     ]
 
