@@ -117,10 +117,16 @@ class IndependentScoreResult:
 
 @dataclass(frozen=True, slots=True)
 class PhotoScore:
-    """Internal model response for one sampled photo."""
+    """Scoring result for one photo."""
 
     score: int
     reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "score": self.score,
+            "reason": self.reason,
+        }
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import sys
 from typing import Sequence
 
-from .api import score_directories_independently, score_directory
+from .api import score_directories_independently, score_directory, score_image
 from .arguments import build_parser
 from .autopack.packer import (
     AutopackResult,
     pack_independent_result,
     pack_score_result,
 )
+from .discovery import SUPPORTED_SUFFIXES
 from .errors import SunsetScoreError
 from .log import configure_logging, logger
-from .results import IndependentScoreResult, ScoreResult, SunsetRange
+from .results import IndependentScoreResult, PhotoScore, ScoreResult, SunsetRange
 from .termination import TerminationRequested, handle_termination_signals
 
 
@@ -26,22 +28,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     args = parser.parse_args(arguments)
-    if args.independently and not args.recursive:
-        parser.error("--independently 只能与 -r/--recursive 一起使用")
-    if args.directory is None:
+    if args.input_path is None:
         parser.print_help()
         return 0
     if args.cpu_infer and (
         args.gpu_workers is not None or args.gpu_memory_limit is not None
     ):
         parser.error("--cpu-infer 不能与 GPU 限制参数一起使用")
+    image_input = _is_image_input(args.input_path)
+    if image_input:
+        _validate_image_options(args, parser)
+    elif args.independently and not args.recursive:
+        parser.error("--independently 只能与 -r/--recursive 一起使用")
 
     configure_logging()
     try:
         with handle_termination_signals():
-            if args.independently:
+            if image_input:
+                result = score_image(
+                    args.input_path,
+                    cpu_infer=args.cpu_infer,
+                    gpu_workers=args.gpu_workers,
+                    gpu_memory_limit=args.gpu_memory_limit,
+                )
+            elif args.independently:
                 result = score_directories_independently(
-                    args.directory,
+                    args.input_path,
                     interval=args.interval,
                     cpu_infer=args.cpu_infer,
                     gpu_workers=args.gpu_workers,
@@ -50,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             else:
                 result = score_directory(
-                    args.directory,
+                    args.input_path,
                     recursive=args.recursive,
                     interval=args.interval,
                     cpu_infer=args.cpu_infer,
@@ -59,7 +71,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     force=args.force,
                 )
             packed = (
-                _pack_result(args.directory, result, recursive=args.recursive)
+                _pack_result(args.input_path, result, recursive=args.recursive)
                 if args.autopack
                 else None
             )
@@ -75,6 +87,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps(result.to_dict(), ensure_ascii=False, separators=(",", ":")))
+    elif isinstance(result, PhotoScore):
+        print(f"评分: {result.score} / 5")
+        print(f"理由: {result.reason}")
     elif isinstance(result, IndependentScoreResult):
         _print_independent_result(result)
     else:
@@ -91,6 +106,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     if isinstance(result, IndependentScoreResult) and result.failed_directory_count:
         return 1
     return 0
+
+
+def _is_image_input(path: Path) -> bool:
+    expanded = path.expanduser()
+    if expanded.is_file():
+        return True
+    if expanded.exists():
+        return False
+    return expanded.suffix.casefold() in SUPPORTED_SUFFIXES
+
+
+def _validate_image_options(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> None:
+    incompatible = []
+    if args.recursive:
+        incompatible.append("--recursive")
+    if args.independently:
+        incompatible.append("--independently")
+    if args.interval is not None:
+        incompatible.append("--interval")
+    if args.force:
+        incompatible.append("--force")
+    if args.autopack:
+        incompatible.append("--autopack")
+    if incompatible:
+        parser.error(f"单张照片输入不能使用: {', '.join(incompatible)}")
 
 
 def _print_independent_result(result: IndependentScoreResult) -> None:

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目录中采样照片，使用本地视觉语言模型判断每张采样图片是否包含被霞光染亮的云层，最后输出是否检测到晚霞及其照片区间。纯粹日落而没有着色云层的照片不计为晚霞。
+SunsetScore 是一个跨平台 Python 命令行程序。它可以使用本地视觉语言模型为单张照片评分，也可以按固定间隔从目录中采样照片，并输出是否检测到晚霞及其照片区间。纯粹日落而没有着色云层的照片不计为晚霞。
 
 评分是程序根据模型生成的互斥视觉类别确定的粗粒度指数，不是经过统计校准的真实概率。程序只判断可见画面，不使用 EXIF 时间或拍摄地点，因此视觉上相似的朝霞云也可能获得高分。
 
@@ -20,6 +20,7 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 - 首次下载模型后完全在本地运行，无需 API 密钥或云服务
 - 自动使用兼容 GPU，并支持强制 CPU 与失败自动回退
 - 复用单个本地推理服务，在不复制模型进程的前提下并发处理最多两个请求
+- 为单张 JPG、JPEG 或 PNG 照片评分并返回模型理由
 - 按相对路径和文件名自然排序，执行确定性采样
 - 使用 `-r` / `--recursive` 扫描完整目录树
 - 可将每个合法后代目录分别分析并生成 Markdown 报告
@@ -27,9 +28,9 @@ SunsetScore 是一个跨平台 Python 命令行程序。它按固定间隔从目
 - 持久化成功的目录评分，并在后续运行中自动复用
 - 读取输入目录中的严格 TOML 配置
 - 打印进度、逐张分数、判分理由和耗时
-- 日志写入标准错误，汇总结论写入标准输出
+- 日志写入标准错误，最终结果写入标准输出
 - 支持面向用户的文本输出和面向程序的 JSON 输出
-- 提供返回布尔判定和照片区间的 Python API
+- 提供单张评分与目录汇总结论的 Python API
 - 单张图片不可读时跳过，其他样本仍可继续评分
 
 ## 运行要求
@@ -74,9 +75,15 @@ sunsetscore --version
 sunsetscore --help
 ```
 
-不提供输入目录时，`sunsetscore` 只打印帮助，不加载或下载模型。
+不提供输入路径时，`sunsetscore` 只打印帮助，不加载或下载模型。
 
 ## 快速使用
+
+为单张照片评分并打印分数与理由：
+
+```console
+sunsetscore /path/to/photo.jpg
+```
 
 评分目录第一层中的受支持图片：
 
@@ -135,7 +142,20 @@ sunsetscore /path/to/photos --gpu-memory-limit 6
 sunsetscore /path/to/photos --gpu-workers 2 --gpu-memory-limit 10
 ```
 
-文本输出：
+单张照片的文本输出：
+
+```text
+评分: 4 / 5
+理由: 大范围云层呈现鲜艳霞光着色
+```
+
+单张照片的 JSON 输出：
+
+```json
+{"score":4,"reason":"大范围云层呈现鲜艳霞光着色"}
+```
+
+目录评分的文本输出：
 
 ```text
 平均分: 3.40
@@ -144,13 +164,15 @@ sunsetscore /path/to/photos --gpu-workers 2 --gpu-memory-limit 10
 晚霞区间: photo101.jpg 至 photo131.jpg
 ```
 
-JSON 输出：
+目录评分的 JSON 输出：
 
 ```json
 {"average_score":3.4,"max_score":5,"has_sunset":true,"sunset_ranges":[{"start_photo":"photo101.jpg","end_photo":"photo131.jpg"}]}
 ```
 
 运行日志始终写入标准错误，最终文本或 JSON 结论写入标准输出，因此外部调用方无需解析日志即可捕获结果。
+
+单张照片模式每次固定执行一次推理，不创建或复用目录评分文件。该模式支持 `--cpu-infer`、`--gpu-workers`、`--gpu-memory-limit` 和 `--json`。递归扫描、采样间隔、强制刷新缓存、独立目录分析和自动打包等目录专属选项用于照片输入时会被明确拒绝。
 
 ## 采样规则
 
@@ -283,10 +305,13 @@ sunsetscore ~/Pictures
 
 ## Python API
 
-Python 调用方可以直接取得汇总结论：
+Python 调用方可以为单张照片评分，也可以直接取得目录汇总结论：
 
 ```python
-from sunsetscore import score_directories_independently, score_directory
+from sunsetscore import score_directories_independently, score_directory, score_image
+
+photo = score_image("D:/Photos/sunset.jpg")
+print(photo.score, photo.reason)
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
 print(result.has_sunset)
@@ -311,7 +336,7 @@ limited = score_directory(
 refreshed = score_directory("D:/Photos", force=True)
 ```
 
-两个公开评分函数都默认复用兼容的评分文件，并可通过 `force=True` 刷新结果。`ScoreResult` 公开 `has_sunset`、`sunset_ranges`、`average_score` 和 `max_score`。有序单张评分与模型理由会保存在带版本的评分文件中，并写入运行日志。
+两个目录评分函数都默认复用兼容的评分文件，并可通过 `force=True` 刷新结果。`score_image` 每次都执行推理，并返回包含 `score` 与 `reason` 的 `PhotoScore`。`ScoreResult` 公开 `has_sunset`、`sunset_ranges`、`average_score` 和 `max_score`。目录模式的有序单张评分与模型理由会保存在带版本的评分文件中，并写入运行日志。
 
 损坏或无法读取的采样图片会被记录并跳过，不会自动选择下一张补位。只要至少一张样本评分成功，运行就会生成结论。没有匹配图片或所有样本均失败时，程序返回非零退出码且不输出伪造分数。
 

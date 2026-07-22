@@ -10,6 +10,7 @@ from sunsetscore.errors import InputError
 from sunsetscore.results import (
     DirectoryScoreResult,
     IndependentScoreResult,
+    PhotoScore,
     SunsetRange,
 )
 
@@ -49,6 +50,58 @@ def test_expected_error_is_logged_to_stderr(capsys, monkeypatch, tmp_path) -> No
     output = capsys.readouterr()
     assert output.out == ""
     assert "输入目录不存在" in output.err
+
+
+def test_single_photo_is_sent_to_image_api(capsys, monkeypatch, tmp_path) -> None:
+    image = tmp_path / "photo.jpg"
+    image.write_bytes(b"handled by mocked API")
+    calls = []
+
+    def fake_score(path, **kwargs):
+        calls.append((path, kwargs))
+        return PhotoScore(4, "云层呈现鲜艳霞光")
+
+    monkeypatch.setattr(cli, "score_image", fake_score)
+    monkeypatch.setattr(
+        cli,
+        "score_directory",
+        lambda *args, **kwargs: pytest.fail("directory scoring must not start"),
+    )
+
+    assert cli.main([str(image), "--cpu-infer"]) == 0
+    assert calls == [
+        (
+            image,
+            {
+                "cpu_infer": True,
+                "gpu_workers": None,
+                "gpu_memory_limit": None,
+            },
+        )
+    ]
+    assert capsys.readouterr().out == "评分: 4 / 5\n理由: 云层呈现鲜艳霞光\n"
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["--recursive", "--independently", "--interval", "--force", "--autopack"],
+)
+def test_single_photo_rejects_directory_only_options(
+    option,
+    capsys,
+    tmp_path,
+) -> None:
+    image = tmp_path / "photo.jpg"
+    image.write_bytes(b"image")
+    arguments = [str(image), option]
+    if option == "--interval":
+        arguments.append("2")
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main(arguments)
+
+    assert raised.value.code == 2
+    assert "单张照片输入不能使用" in capsys.readouterr().err
 
 
 def test_invalid_interval_exits_with_usage(capsys) -> None:

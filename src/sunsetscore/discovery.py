@@ -46,6 +46,19 @@ def discover_image_directories(input_directory: Path) -> list[Path]:
     )
 
 
+def resolve_input_image(input_image: Path) -> Path:
+    image = input_image.expanduser()
+    if _is_link_or_reparse(image):
+        raise InputError(f"输入照片不能是符号链接或重解析点: {image}")
+    if not image.exists():
+        raise InputError(f"输入照片不存在: {image}")
+    if not image.is_file():
+        raise InputError(f"输入路径不是文件: {image}")
+    if image.suffix.casefold() not in SUPPORTED_SUFFIXES:
+        raise InputError(f"不支持的照片格式: {image}，仅支持 JPG、JPEG 或 PNG")
+    return image.resolve()
+
+
 def _resolve_input_directory(input_directory: Path) -> Path:
     root = input_directory.expanduser()
     if _is_link_or_reparse(root):

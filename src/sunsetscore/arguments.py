@@ -57,17 +57,18 @@ def gpu_memory_gib(value: str) -> float:
 def build_parser() -> argparse.ArgumentParser:
     parser = ChineseArgumentParser(
         prog="sunsetscore",
-        description="采样输入目录中的照片，并使用本地视觉语言模型计算晚霞指数。",
+        description="使用本地视觉语言模型为单张照片或照片目录计算晚霞指数。",
         add_help=False,
     )
     parser._positionals.title = "位置参数"
     parser._optionals.title = "选项"
     parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出。")
     parser.add_argument(
-        "directory",
+        "input_path",
         nargs="?",
         type=Path,
-        help="包含 JPG 或 PNG 照片的输入目录。",
+        metavar="path",
+        help="待评分的 JPG、JPEG 或 PNG 照片，或包含这些照片的目录。",
     )
     parser.add_argument(
         "-r",

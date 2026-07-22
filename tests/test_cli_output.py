@@ -4,7 +4,7 @@ import json
 
 from sunsetscore import cli
 from sunsetscore.autopack.packer import AutopackResult
-from sunsetscore.results import ScoreResult, SunsetRange
+from sunsetscore.results import PhotoScore, ScoreResult, SunsetRange
 
 
 def test_json_mode_prints_only_conclusion(capsys, monkeypatch, tmp_path) -> None:
@@ -30,6 +30,27 @@ def test_json_mode_prints_only_conclusion(capsys, monkeypatch, tmp_path) -> None
         ],
     }
     assert output.err == ""
+
+
+def test_single_photo_json_contains_score_and_reason(
+    capsys,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    image = tmp_path / "photo.jpg"
+    image.write_bytes(b"handled by mocked API")
+    monkeypatch.setattr(
+        cli,
+        "score_image",
+        lambda *args, **kwargs: PhotoScore(3, "云层有清晰但柔和的着色"),
+    )
+
+    assert cli.main([str(image), "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "score": 3,
+        "reason": "云层有清晰但柔和的着色",
+    }
 
 
 def test_autopack_keeps_json_stdout_machine_readable(

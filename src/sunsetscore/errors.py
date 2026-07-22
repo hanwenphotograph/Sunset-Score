@@ -10,7 +10,7 @@ class ConfigError(SunsetScoreError):
 
 
 class InputError(SunsetScoreError):
-    """Raised when the input directory cannot be processed."""
+    """Raised when an input path cannot be processed."""
 
 
 class ScoringError(SunsetScoreError):

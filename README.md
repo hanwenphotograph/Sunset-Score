@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-SunsetScore is a cross-platform Python CLI that samples photos from a directory, uses a local vision-language model to detect clouds visibly colored by sunset glow, and reports whether qualifying glow was detected and where it occurs. A sunset without visibly colored clouds does not qualify.
+SunsetScore is a cross-platform Python CLI that scores one photo or samples photos from a directory with a local vision-language model. Directory runs report whether qualifying sunset glow was detected and where it occurs. A sunset without visibly colored clouds does not qualify.
 
 The score is a coarse index deterministically mapped from the model's mutually exclusive visual category, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so visually similar sunrise-lit clouds may also receive a high score.
 
@@ -20,6 +20,7 @@ These crops come from one scored timelapse sequence and focus on the cloud area.
 - Runs locally after the initial model download, without an API key or cloud service
 - Automatically uses a compatible GPU, with CPU override and automatic fallback
 - Reuses one local inference service and runs up to two requests concurrently without duplicating model processes
+- Scores an individual JPG, JPEG, or PNG and returns the model's reason
 - Samples deterministically by naturally sorted relative path and filename
 - Scans one directory or an entire directory tree with `-r` / `--recursive`
 - Optionally analyzes every valid descendant directory independently and writes a Markdown report
@@ -27,9 +28,9 @@ These crops come from one scored timelapse sequence and focus on the cloud area.
 - Persists successful directory scores and reuses them on later runs
 - Reads a strict per-directory TOML configuration file
 - Prints progress, per-image scores, reasons, and timing information
-- Keeps logs on standard error and aggregate results on standard output
+- Keeps logs on standard error and final results on standard output
 - Provides human-readable and JSON CLI output
-- Exposes a small Python API that returns a Boolean detection and photo ranges
+- Exposes a small Python API for individual scores and directory conclusions
 - Skips individual unreadable images while preserving the rest of the run
 
 ## Requirements
@@ -74,9 +75,15 @@ sunsetscore --version
 sunsetscore --help
 ```
 
-Running `sunsetscore` without an input directory prints help and does not load or download the model.
+Running `sunsetscore` without an input path prints help and does not load or download the model.
 
 ## Quick Start
+
+Score one photo and print its score and reason:
+
+```console
+sunsetscore /path/to/photo.jpg
+```
 
 Score the supported images directly inside a directory:
 
@@ -135,7 +142,20 @@ sunsetscore /path/to/photos --gpu-memory-limit 6
 sunsetscore /path/to/photos --gpu-workers 2 --gpu-memory-limit 10
 ```
 
-Human-readable output:
+Single-photo text output:
+
+```text
+评分: 4 / 5
+理由: 大范围云层呈现鲜艳霞光着色
+```
+
+Single-photo JSON output:
+
+```json
+{"score":4,"reason":"大范围云层呈现鲜艳霞光着色"}
+```
+
+Directory text output:
 
 ```text
 平均分: 3.40
@@ -144,13 +164,15 @@ Human-readable output:
 晚霞区间: photo101.jpg 至 photo131.jpg
 ```
 
-JSON output:
+Directory JSON output:
 
 ```json
 {"average_score":3.4,"max_score":5,"has_sunset":true,"sunset_ranges":[{"start_photo":"photo101.jpg","end_photo":"photo131.jpg"}]}
 ```
 
 Runtime logs are always written to standard error. The final text or JSON result is written to standard output, so external callers can capture it without parsing logs.
+
+Single-photo runs always perform one inference and do not create or reuse a directory score file. They support `--cpu-infer`, `--gpu-workers`, `--gpu-memory-limit`, and `--json`. Directory-only options such as recursive scanning, sampling intervals, forced cache refresh, independent analysis, and automatic packing are rejected for a photo input.
 
 ## Sampling Rules
 
@@ -283,10 +305,13 @@ For example, a directory with about 1,800 images and the default interval of `10
 
 ## Python API
 
-Python callers can obtain the aggregate conclusion directly:
+Python callers can score one photo or obtain an aggregate directory conclusion directly:
 
 ```python
-from sunsetscore import score_directories_independently, score_directory
+from sunsetscore import score_directories_independently, score_directory, score_image
+
+photo = score_image("D:/Photos/sunset.jpg")
+print(photo.score, photo.reason)
 
 result = score_directory("D:/Photos", recursive=True, interval=10)
 print(result.has_sunset)
@@ -311,7 +336,7 @@ limited = score_directory(
 refreshed = score_directory("D:/Photos", force=True)
 ```
 
-Both public scoring functions reuse compatible score files by default and accept `force=True` to refresh them. `ScoreResult` exposes `has_sunset`, `sunset_ranges`, `average_score`, and `max_score`. Ordered per-image scores and model reasons are retained in the versioned score file and written to runtime logs.
+The two directory scoring functions reuse compatible score files by default and accept `force=True` to refresh them. `score_image` always performs inference and returns a `PhotoScore` containing `score` and `reason`. `ScoreResult` exposes `has_sunset`, `sunset_ranges`, `average_score`, and `max_score`. Ordered per-image scores and model reasons from directory runs are retained in the versioned score file and written to runtime logs.
 
 Unreadable or corrupt sampled images are logged and skipped without selecting a replacement. The run succeeds if at least one sample is scored. An empty input or a run in which every sample fails returns a non-zero exit code and does not emit fabricated scores.
 

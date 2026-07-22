@@ -7,6 +7,7 @@ import pytest
 from sunsetscore.discovery import (
     discover_image_directories,
     discover_images,
+    resolve_input_image,
     sample_images,
 )
 from sunsetscore.errors import InputError
@@ -100,3 +101,23 @@ def test_symlinked_image_is_skipped(tmp_path) -> None:
 def test_missing_input_fails(tmp_path) -> None:
     with pytest.raises(InputError, match="不存在"):
         discover_images(tmp_path / "missing", recursive=False)
+
+
+def test_single_image_input_accepts_supported_formats(tmp_path) -> None:
+    image = tmp_path / "photo.JPEG"
+    _touch(image)
+
+    assert resolve_input_image(image) == image.resolve()
+
+
+def test_single_image_input_rejects_unsupported_format(tmp_path) -> None:
+    image = tmp_path / "photo.webp"
+    _touch(image)
+
+    with pytest.raises(InputError, match="仅支持 JPG、JPEG 或 PNG"):
+        resolve_input_image(image)
+
+
+def test_single_image_input_rejects_directory(tmp_path) -> None:
+    with pytest.raises(InputError, match="不是文件"):
+        resolve_input_image(tmp_path)
