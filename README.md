@@ -6,6 +6,15 @@ SunsetScore is a cross-platform Python CLI that samples photos from a directory,
 
 The score is a coarse index deterministically mapped from the model's mutually exclusive visual category, not a statistically calibrated probability. SunsetScore evaluates visible appearance only: it does not use EXIF time or location, so visually similar sunrise-lit clouds may also receive a high score.
 
+## Scoring Examples
+
+These crops come from one scored timelapse sequence and focus on the cloud area. The lower-left label is the score stored by SunsetScore. This run produced no score-5 sample, so scores 1, 3, and 4 represent its typical low, medium, and high cases.
+
+| Low | Medium | High |
+|:---:|:---:|:---:|
+| ![Low score example: ordinary white and gray clouds without sunset coloring, scored 1 out of 5](docs/images/score-examples/low-score-1.jpg) | ![Medium score example: clearly but softly colored clouds, scored 3 out of 5](docs/images/score-examples/medium-score-3.jpg) | ![High score example: vivid coloring across a broad cloud area, scored 4 out of 5](docs/images/score-examples/high-score-4.jpg) |
+| **1 / 5**<br>Ordinary white and gray clouds without sunset coloring. | **3 / 5**<br>Clear but soft, moderately intense cloud coloring. | **4 / 5**<br>Vivid coloring across a broad area of the clouds. |
+
 ## Features
 
 - Runs locally after the initial model download, without an API key or cloud service
